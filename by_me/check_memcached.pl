@@ -3,7 +3,7 @@
 # Program : check_memcached.pl
 # Version : 2010.7.14
 # Date    : May 25 2010
-# Updated : July 15 2010
+# Updated : July 14 2010
 # Author  : Alex Simenduev - (http://www.planetit.ws)
 # Summary : This is a nagios plugin that checks memcached server state
 #
