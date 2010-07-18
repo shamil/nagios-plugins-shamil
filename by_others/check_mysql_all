@@ -567,14 +567,14 @@ sub check_qps {
     my $qps = sprintf("%d", $status->{'Questions'}{'Value'} / $status->{'Uptime'}{'Value'});
 
     if ($qps >= $opts->{'critical'} && $opts->{'critical'} != 0) {
-        print "CRITICAL: $qps queries per seccond|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
+        print "CRITICAL: $qps queries per second|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
         exit $ERRORS{'CRITICAL'};
     } elsif ($qps >= $opts->{'warning'} && $opts->{'warning'} != 0) {
-        print "WARNING: $qps queries per seccond|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
+        print "WARNING: $qps queries per second|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
         exit $ERRORS{'WARNING'};
     }
 
-    print "OK: $qps queries per seccond|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
+    print "OK: $qps queries per second|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
     exit $ERRORS{'OK'};
 }
 
