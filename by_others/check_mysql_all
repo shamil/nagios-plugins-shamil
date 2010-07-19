@@ -599,7 +599,7 @@ sub check_connections {
 # Adeded by Alex Simenduev (http://www.planetit.ws)
 sub check_queries {
     my ($dbh, $opts, $args, $processlist, $variables, $status, $dbs) = @_;
-    my $tmp_file = "/tmp/$SCRIPT_NAME-$opts->{'host'}-$opts->{'host'}-$opts->{'check'}";
+    my $tmp_file = "/tmp/$SCRIPT_NAME-$opts->{'host'}-$opts->{'check'}";
 
     $opts->{'warning'}  = $opts->{'warning'}  ? $opts->{'warning'}  : 0;
     $opts->{'critical'} = $opts->{'critical'} ? $opts->{'critical'} : 0;
@@ -627,7 +627,7 @@ sub check_queries {
 # Adeded by Alex Simenduev (http://www.planetit.ws)
 sub check_slow_queries {
     my ($dbh, $opts, $args, $processlist, $variables, $status, $dbs) = @_;
-    my $tmp_file = "/tmp/$SCRIPT_NAME-$opts->{'host'}-$opts->{'host'}-$opts->{'check'}";
+    my $tmp_file = "/tmp/$SCRIPT_NAME-$opts->{'host'}-$opts->{'check'}";
 
     $opts->{'warning'}  = $opts->{'warning'}  ? $opts->{'warning'}  : 0;
     $opts->{'critical'} = $opts->{'critical'} ? $opts->{'critical'} : 0;
