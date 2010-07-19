@@ -6,8 +6,8 @@
 ################################################################################
 # check_mysql_all - Nagios Plug-In for typical MySQL checks. 4.0+
 #
-# Modified version (0.0.9a). Added support for queries per second check.
-# Modified by: Alex Simenduev (http://www.planetit.ws), on 18/07/2010
+# Modified version (0.0.9b). Added support for queries/slow-queries per second.
+# Modified by: Alex Simenduev (http://www.planetit.ws), on 19/07/2010
 #
 # @author  Ryan Lowe <ryan.a.lowe@percona.com>
 # @date    2009-03-06
@@ -16,9 +16,10 @@
 
 use strict;
 use warnings FATAL => 'all';
-use Pod::Usage;
-use Getopt::Long;
 use English qw(-no_match_vars);
+use File::Basename;
+use Getopt::Long;
+use Pod::Usage;
 use DBI;
 use lib qw(
     /usr/local/nagios/libexec
@@ -27,9 +28,9 @@ use lib qw(
 );
 use utils qw(%ERRORS);
 
-my $VERSION = '0.0.9a';
-my @CHECKS = qw(connect repl_io repl_sql repl_sbm repl_all
-                mysql_query connections qps table_status myisam_frag);
+my $VERSION     = '0.0.9b';
+my $SCRIPT_NAME = basename(__FILE__);
+my @CHECKS      = qw(connect repl_io repl_sql repl_sbm repl_all mysql_query connections queries slow_queries table_status myisam_frag);
 my @REPL_CHECKS = qw(repl_io repl_sql repl_sbm repl_all);
 my %OPTIONS;
 my %ARGS;
@@ -316,6 +317,48 @@ sub get_table_status {
     return (\%tables_status);
 }
 
+# Get delta values, using temp file
+# Returns list with 2 values:
+#   1: Metric delta
+#   2: Interval in seconds
+sub get_delta_values {
+    my $timestamp = time();
+    my ($tmp_file, $opts, $metricval) = @_;
+    my ($timestamp_diff, $metricval_diff) = (1, 0); # Minimum interval is 1 second
+
+    # Open file to get saved data
+    if (-e $tmp_file) {
+        if (open(FILE, "< $tmp_file")) {
+            my $saved_data = <FILE>;     # read first line from file,
+            close(FILE);                 # then close the file
+
+            $saved_data =~ /^(.*),(.*)/; # parse the "saved data" line
+            $timestamp_diff = $timestamp - $1;
+            $metricval_diff = $metricval - $2;
+        }
+        else {
+            print "UNKNOWN: Unable to open '$tmp_file' file\n";
+            print "Error: $!\n" if ($opts->{'verbose'} > 2);
+            exit $ERRORS{'UNKNOWN'};
+        }
+    }
+
+    # Open/Create a temp file
+    if (open(FILE, "+> $tmp_file")) {
+        # then save new data to it
+        print FILE "$timestamp,$metricval";
+        close(FILE);
+    }
+    else {
+        print "UNKNOWN: Unable to open '$tmp_file' file\n";
+        print "Error: $!\n" if ($opts->{'verbose'} > 2);
+        exit $ERRORS{'UNKNOWN'};
+    }
+
+    # Return the deltas ...
+    return ($metricval_diff, $timestamp_diff);
+}
+
 ################################################################################
 # Checks
 ################################################################################
@@ -554,8 +597,9 @@ sub check_connections {
 
 # Queries per second check
 # Adeded by Alex Simenduev (http://www.planetit.ws)
-sub check_qps {
+sub check_queries {
     my ($dbh, $opts, $args, $processlist, $variables, $status, $dbs) = @_;
+    my $tmp_file = "/tmp/$SCRIPT_NAME-$opts->{'host'}-$opts->{'host'}-$opts->{'check'}";
 
     $opts->{'warning'}  = $opts->{'warning'}  ? $opts->{'warning'}  : 0;
     $opts->{'critical'} = $opts->{'critical'} ? $opts->{'critical'} : 0;
@@ -563,18 +607,47 @@ sub check_qps {
     validate_input($opts, 'warning',  'seconds');
     validate_input($opts, 'critical', 'seconds');
 
-    # Queries per seconds = Total_queries / Uptime
-    my $qps = sprintf("%d", $status->{'Questions'}{'Value'} / $status->{'Uptime'}{'Value'});
+    # Get delta values and calculate queries per second
+    my ($delta, $interval) = get_delta_values($tmp_file, $opts, $status->{'Questions'}{'Value'});
+    my $qps = sprintf("%.2f", $delta / $interval);
 
     if ($qps >= $opts->{'critical'} && $opts->{'critical'} != 0) {
-        print "CRITICAL: $qps queries per second|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
+        print "CRITICAL: $delta queries in $interval seconds ($qps/sec)|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
         exit $ERRORS{'CRITICAL'};
     } elsif ($qps >= $opts->{'warning'} && $opts->{'warning'} != 0) {
-        print "WARNING: $qps queries per second|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
+        print "WARNING: $delta queries in $interval seconds ($qps/sec)|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
         exit $ERRORS{'WARNING'};
     }
 
-    print "OK: $qps queries per second|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
+    print "OK: $delta queries in $interval seconds ($qps/sec)|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
+    exit $ERRORS{'OK'};
+}
+
+# Slow queries per second check
+# Adeded by Alex Simenduev (http://www.planetit.ws)
+sub check_slow_queries {
+    my ($dbh, $opts, $args, $processlist, $variables, $status, $dbs) = @_;
+    my $tmp_file = "/tmp/$SCRIPT_NAME-$opts->{'host'}-$opts->{'host'}-$opts->{'check'}";
+
+    $opts->{'warning'}  = $opts->{'warning'}  ? $opts->{'warning'}  : 0;
+    $opts->{'critical'} = $opts->{'critical'} ? $opts->{'critical'} : 0;
+
+    validate_input($opts, 'warning',  'seconds');
+    validate_input($opts, 'critical', 'seconds');
+
+    # Get delta values and calculate queries per second
+    my ($delta, $interval) = get_delta_values($tmp_file, $opts, $status->{'Slow_queries'}{'Value'});
+    my $qps = sprintf("%.2f", $delta / $interval);
+
+    if ($qps >= $opts->{'critical'} && $opts->{'critical'} != 0) {
+        print "CRITICAL: $delta slow queries in $interval seconds ($qps/sec)|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
+        exit $ERRORS{'CRITICAL'};
+    } elsif ($qps >= $opts->{'warning'} && $opts->{'warning'} != 0) {
+        print "WARNING: $delta slow queries in $interval seconds ($qps/sec)|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
+        exit $ERRORS{'WARNING'};
+    }
+
+    print "OK: $delta slow queries in $interval seconds ($qps/sec)|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
     exit $ERRORS{'OK'};
 }
 
@@ -747,7 +820,7 @@ check_mysql_all - Nagios checks for 4.0+ versions of MySQL
 
  The following checks are supported:
 
- connect repl_io repl_sql repl_sbm repl_all mysql_query connections qps table_status
+ connect repl_io repl_sql repl_sbm repl_all mysql_query connections queries slow_queries table_status
  myisam_frag
 
 =head1 OPTIONS
@@ -900,9 +973,17 @@ Test if the percentage of used connections is over a given threshold.
     I<--warning> => default 80%
     I<--critical> => default 90%
 
-=item B<qps>
+=item B<queries>
 
 Test if the queries per second is over a given threshold.
+    Permissions required: PROCESS
+    I<--args> => ignored
+    I<--warning> => default 0
+    I<--critical> => default 0
+
+=item B<slow-queries>
+
+Test if the slow queries per second is over a given threshold.
     Permissions required: PROCESS
     I<--args> => ignored
     I<--warning> => default 0
