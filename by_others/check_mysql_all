@@ -614,7 +614,8 @@ sub check_queries {
     if ($qps >= $opts->{'critical'} && $opts->{'critical'} != 0) {
         print "CRITICAL: $delta queries in $interval seconds ($qps/sec)|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
         exit $ERRORS{'CRITICAL'};
-    } elsif ($qps >= $opts->{'warning'} && $opts->{'warning'} != 0) {
+    }
+    elsif ($qps >= $opts->{'warning'} && $opts->{'warning'} != 0) {
         print "WARNING: $delta queries in $interval seconds ($qps/sec)|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
         exit $ERRORS{'WARNING'};
     }
@@ -642,7 +643,8 @@ sub check_slow_queries {
     if ($qps >= $opts->{'critical'} && $opts->{'critical'} != 0) {
         print "CRITICAL: $delta slow queries in $interval seconds ($qps/sec)|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
         exit $ERRORS{'CRITICAL'};
-    } elsif ($qps >= $opts->{'warning'} && $opts->{'warning'} != 0) {
+    }
+    elsif ($qps >= $opts->{'warning'} && $opts->{'warning'} != 0) {
         print "WARNING: $delta slow queries in $interval seconds ($qps/sec)|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
         exit $ERRORS{'WARNING'};
     }
