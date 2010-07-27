@@ -5,7 +5,7 @@
 # License: GPL
 # Copyright (c) 2008 op5 AB
 # Author: Kostyantyn Gushchyn <dev@op5.com>
-# Contributor(s): Patrick Müller, Jeremy Martin, Eric Jonsson, stumpr, John Cavanaugh, Libor Klepac
+# Contributor(s): Patrick Müller, Jeremy Martin, Eric Jonsson, stumpr, John Cavanaugh, Libor Klepac, maikmayers
 #
 # For direct contact with any of the op5 developers send a mail to
 # dev@op5.com
@@ -96,7 +96,7 @@ eval {
 $PROGNAME = basename($0);
 $VERSION = '0.2.0';
 
-use constant SENSOR_NORMAL_VALUE => 'green';
+use constant SENSOR_NORMAL_VALUE => 'GREEN';
 
 my $np = Nagios::Plugin->new(
   usage => "Usage: %s -D <data_center> | -H <host_name> [ -N <vm_name> ]\n"
@@ -122,9 +122,9 @@ my $np = Nagios::Plugin->new(
     . "            + overall - overall mem used by VM Server in MB\n"
     . "            ^ all mem info\n"
     . "        * net - shows net info\n"
-    . "            + usage - overall network usage in KB/s \n"
-    . "            + receive - receive in KB/s \n"
-    . "            + send - send in KB/s \n"
+    . "            + usage - overall network usage in KBps(Kilobytes per Second) \n"
+    . "            + receive - receive in KBps(Kilobytes per Second) \n"
+    . "            + send - send in KBps(Kilobytes per Second) \n"
     . "            ^ all net info\n"
     . "        * io - shows disk io info\n"
     . "            + read - read latency in ms\n"
@@ -560,6 +560,8 @@ sub return_host_vmware_performance_values {
 sub return_dc_performance_values {
 	my $values;
 	my $host_views = Vim::find_entity_views(view_type => 'HostSystem', properties => [ 'name' ]);
+	die "Runtime error\n" if (!defined($host_views));
+	die "Datacenter does not contain any hosts\n" if (!@$host_views);
 	$values = generic_performance_values($host_views, @_);
 
 	return undef if ($@);
@@ -749,8 +751,8 @@ sub host_net_info
 			if (defined($values))
 			{
 				my $value = simplify_number(convert_number($$values[0][0]->value));
-				$np->add_perfdata(label => "net_usage", value => $value, uom => 'KB', threshold => $np->threshold);
-				$output = "net usage=" . $value . " KB/s"; 
+				$np->add_perfdata(label => "net_usage", value => $value, uom => 'KBps', threshold => $np->threshold);
+				$output = "net usage=" . $value . " KBps"; 
 				$res = $np->check_threshold(check => $value);
 			}
 		}
@@ -760,8 +762,8 @@ sub host_net_info
 			if (defined($values))
 			{
 				my $value = simplify_number(convert_number($$values[0][0]->value));
-				$np->add_perfdata(label => "net_receive", value => $value, uom => 'KB', threshold => $np->threshold);
-				$output = "net receive=" . $value . " KB/s"; 
+				$np->add_perfdata(label => "net_receive", value => $value, uom => 'KBps', threshold => $np->threshold);
+				$output = "net receive=" . $value . " KBps"; 
 				$res = $np->check_threshold(check => $value);
 			}
 		}
@@ -771,8 +773,8 @@ sub host_net_info
 			if (defined($values))
 			{
 				my $value = simplify_number(convert_number($$values[0][0]->value));
-				$np->add_perfdata(label => "net_send", value => $value, uom => 'KB', threshold => $np->threshold);
-				$output = "net send=" . $value . " KB/s"; 
+				$np->add_perfdata(label => "net_send", value => $value, uom => 'KBps', threshold => $np->threshold);
+				$output = "net send=" . $value . " KBps"; 
 				$res = $np->check_threshold(check => $value);
 			}
 		}
@@ -800,20 +802,22 @@ sub host_net_info
 			foreach (@{$network_config->vswitch})
 			{
 				# get list of physical nics
-				foreach (@{$_->pnic})
-				{
-					my $nic_key = $_;
-					my $nic_name = $NIC{$nic_key}->device;
-					if (!defined($NIC{$nic_key}->linkSpeed))
+				if (defined($_->pnic)){
+					foreach (@{$_->pnic})
 					{
-						$output .= ", " if ($output);
-						$output .= "$nic_name is unplugged";
-						$res = "CRITICAL";
-						$BadCount++;
-					}
-					else
-					{
-						$OKCount++;
+						my $nic_key = $_;
+						my $nic_name = $NIC{$nic_key}->device;
+						if (!defined($NIC{$nic_key}->linkSpeed))
+						{
+							$output .= ", " if ($output);
+							$output .= "$nic_name is unplugged";
+							$res = "CRITICAL";
+							$BadCount++;
+						}
+						else
+						{
+							$OKCount++;
+						}
 					}
 				}
 			}
@@ -843,10 +847,10 @@ sub host_net_info
 		{
 			my $value1 = simplify_number(convert_number($$values[0][0]->value));
 			my $value2 = simplify_number(convert_number($$values[0][1]->value));
-			$np->add_perfdata(label => "net_receive", value => $value1, uom => 'KB', threshold => $np->threshold);
-			$np->add_perfdata(label => "net_send", value => $value2, uom => 'KB', threshold => $np->threshold);
+			$np->add_perfdata(label => "net_receive", value => $value1, uom => 'KBps', threshold => $np->threshold);
+			$np->add_perfdata(label => "net_send", value => $value2, uom => 'KBps', threshold => $np->threshold);
 			$res = 'OK';
-			$output = "net receive=" . $value1 . " KB/s, send=" . $value2 . " KB/s, ";
+			$output = "net receive=" . $value1 . " KBps, send=" . $value2 . " KBps, ";
 		}
 
 		my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host);
@@ -1032,6 +1036,8 @@ sub host_list_vm_volumes_info
 	{
 		$output = "No volume named \"$subcommand\" found";
 		my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'datastore']);
+		die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
+
 		foreach my $ref_store (@{$host_view->datastore})
 		{
 			my $store = Vim::get_view(mo_ref => $ref_store, properties => ['summary', 'info']);
@@ -1058,6 +1064,7 @@ sub host_list_vm_volumes_info
 		$res = 0;
 		$output = '';
 		my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'datastore']);
+		die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
 		foreach my $ref_store (@{$host_view->datastore})
 		{
 			my $store = Vim::get_view(mo_ref => $ref_store, properties => ['summary', 'info']);
@@ -1141,7 +1148,7 @@ sub host_runtime_info
 				foreach (@$cpuStatusInfo)
 				{
 					# print "CPU Name = ". $_->name .", Label = ". $_->status->label . ", Summary = ". $_->status->summary . ", Key = ". $_->status->key . "\n";
-					if (lc($_->status->key) ne SENSOR_NORMAL_VALUE)
+					if (uc($_->status->key) ne SENSOR_NORMAL_VALUE)
 					{
 						$output .= ", " if ($output);
 						$output .= $_->name . ": " . $_->status->summary;
@@ -1156,7 +1163,7 @@ sub host_runtime_info
 				foreach (@$storageStatusInfo)
 				{
 					# print "Storage Name = ". $_->name .", Label = ". $_->status->label . ", Summary = ". $_->status->summary . ", Key = ". $_->status->key . "\n";
-					if (lc($_->status->key) ne SENSOR_NORMAL_VALUE)
+					if (uc($_->status->key) ne SENSOR_NORMAL_VALUE)
 					{
 						$output .= ", " if ($output);
 						$output .= "Storage " . $_->name . ": " . $_->status->summary;
@@ -1171,7 +1178,7 @@ sub host_runtime_info
 				foreach (@$memoryStatusInfo)
 				{
 					# print "Memory Name = ". $_->name .", Label = ". $_->status->label . ", Summary = ". $_->status->summary . ", Key = ". $_->status->key . "\n";
-					if (lc($_->status->key) ne SENSOR_NORMAL_VALUE)
+					if (uc($_->status->key) ne SENSOR_NORMAL_VALUE)
 					{
 						$output .= ", " if ($output);
 						$output .= "Memory: " . $_->status->summary;
@@ -1186,7 +1193,7 @@ sub host_runtime_info
 				foreach (@$numericSensorInfo)
 				{
 					# print "Sensor Name = ". $_->name .", Type = ". $_->sensorType . ", Label = ". $_->healthState->label . ", Summary = ". $_->healthState->summary . ", Key = " . $_->healthState->key . "\n";
-					if (lc($_->healthState->key) ne SENSOR_NORMAL_VALUE)
+					if (uc($_->healthState->key) ne SENSOR_NORMAL_VALUE)
 					{
 						$output .= ", " if ($output);
 						$output .= $_->sensorType . " sensor " . $_->name . ": ".$_->healthState->summary;
@@ -1222,7 +1229,8 @@ sub host_runtime_info
 		{
 			my %vm_state_strings = ("poweredOn" => "UP", "poweredOff" => "DOWN", "suspended" => "SUSPENDED");
 			my $vm_views = Vim::find_entity_views(view_type => 'VirtualMachine', begin_entity => $host_view, properties => ['name', 'runtime']);
-			die "There are no VMs.\n" if (!defined($vm_views));
+			die "Runtime error\n" if (!defined($vm_views));
+			die "There are no VMs.\n" if (!@$vm_views);
 			my $up = 0;
 			$output = '';
 
@@ -1242,7 +1250,7 @@ sub host_runtime_info
 		elsif (uc($subcommand) eq "STATUS")
 		{
 			$output =  "overall status=" . $host_view->overallStatus->val;
-			$res = 'OK' if (lc($host_view->overallStatus->val) eq SENSOR_NORMAL_VALUE);
+			$res = 'OK' if (uc($host_view->overallStatus->val) eq SENSOR_NORMAL_VALUE);
 		}
 		elsif (uc($subcommand) eq "ISSUES")
 		{
@@ -1274,7 +1282,8 @@ sub host_runtime_info
 		my $vm_views = Vim::find_entity_views(view_type => 'VirtualMachine', begin_entity => $host_view, properties => ['name', 'runtime']);
 		my $up = 0;
 
-		if (defined($vm_views))
+		die "Runtime error\n" if (!defined($vm_views));
+		if (@$vm_views)
 		{
 			foreach my $vm (@$vm_views) {
 				$up += $vm->runtime->powerState->val eq "poweredOn";
@@ -1303,7 +1312,7 @@ sub host_runtime_info
 			foreach (@$cpuStatusInfo)
 			{
 				$SensorCount++;
-				$AlertCount++ if (lc($_->status->key) ne SENSOR_NORMAL_VALUE);
+				$AlertCount++ if (uc($_->status->key) ne SENSOR_NORMAL_VALUE);
 			}
 		}
 
@@ -1312,7 +1321,7 @@ sub host_runtime_info
 			foreach (@$storageStatusInfo)
 			{
 				$SensorCount++;
-				$AlertCount++ if (lc($_->status->key) ne SENSOR_NORMAL_VALUE);
+				$AlertCount++ if (uc($_->status->key) ne SENSOR_NORMAL_VALUE);
 			}
 		}
 
@@ -1321,7 +1330,7 @@ sub host_runtime_info
 			foreach (@$memoryStatusInfo)
 			{
 				$SensorCount++;
-				$AlertCount++ if (lc($_->status->key) ne SENSOR_NORMAL_VALUE);
+				$AlertCount++ if (uc($_->status->key) ne SENSOR_NORMAL_VALUE);
 			}
 		}
 
@@ -1330,7 +1339,7 @@ sub host_runtime_info
 			foreach (@$numericSensorInfo)
 			{
 				$SensorCount++;
-				$AlertCount++ if (lc($_->healthState->key) ne SENSOR_NORMAL_VALUE);
+				$AlertCount++ if (uc($_->healthState->key) ne SENSOR_NORMAL_VALUE);
 			}
 		}
 
@@ -1628,8 +1637,8 @@ sub vm_net_info
 			if (defined($values))
 			{
 				my $value = simplify_number(convert_number($$values[0][0]->value));
-				$np->add_perfdata(label => "net_usage", value => $value, uom => 'KB', threshold => $np->threshold);
-				$output = "\"$vmname\" net usage=" . $value . " KB/s"; 
+				$np->add_perfdata(label => "net_usage", value => $value, uom => 'KBps', threshold => $np->threshold);
+				$output = "\"$vmname\" net usage=" . $value . " KBps"; 
 				$res = $np->check_threshold(check => $value);
 			}
 		}
@@ -1639,8 +1648,8 @@ sub vm_net_info
 			if (defined($values))
 			{
 				my $value = simplify_number(convert_number($$values[0][0]->value));
-				$np->add_perfdata(label => "net_receive", value => $value, uom => 'KB', threshold => $np->threshold);
-				$output = "\"$vmname\" net receive=" . $value . " KB/s"; 
+				$np->add_perfdata(label => "net_receive", value => $value, uom => 'KBps', threshold => $np->threshold);
+				$output = "\"$vmname\" net receive=" . $value . " KBps"; 
 				$res = $np->check_threshold(check => $value);
 			}
 		}
@@ -1650,8 +1659,8 @@ sub vm_net_info
 			if (defined($values))
 			{
 				my $value = simplify_number(convert_number($$values[0][0]->value));
-				$np->add_perfdata(label => "net_send", value => $value, uom => 'KB', threshold => $np->threshold);
-				$output = "\"$vmname\" net send=" . $value . " KB/s"; 
+				$np->add_perfdata(label => "net_send", value => $value, uom => 'KBps', threshold => $np->threshold);
+				$output = "\"$vmname\" net send=" . $value . " KBps"; 
 				$res = $np->check_threshold(check => $value);
 			}
 		}
@@ -1668,10 +1677,10 @@ sub vm_net_info
 		{
 			my $value1 = simplify_number(convert_number($$values[0][0]->value));
 			my $value2 = simplify_number(convert_number($$values[0][1]->value));
-			$np->add_perfdata(label => "net_receive", value => $value1, uom => 'KB', threshold => $np->threshold);
-			$np->add_perfdata(label => "net_send", value => $value2, uom => 'KB', threshold => $np->threshold);
+			$np->add_perfdata(label => "net_receive", value => $value1, uom => 'KBps', threshold => $np->threshold);
+			$np->add_perfdata(label => "net_send", value => $value2, uom => 'KBps', threshold => $np->threshold);
 			$res = 'OK';
-			$output = "\"$vmname\" net receive=" . $value1 . " KB/s, send=" . $value2 . " KB/s";
+			$output = "\"$vmname\" net receive=" . $value1 . " KBps, send=" . $value2 . " KBps";
 		}
 	}
 
@@ -1782,7 +1791,7 @@ sub vm_runtime_info
 		elsif (uc($subcommand) eq "STATUS")
 		{
 			$output = "\"$vmname\" overall status=" . $vm_view->overallStatus->val;
-			$res = 'OK' if (lc($vm_view->overallStatus->val) eq SENSOR_NORMAL_VALUE);
+			$res = 'OK' if (uc($vm_view->overallStatus->val) eq SENSOR_NORMAL_VALUE);
 		}
 		elsif (uc($subcommand) eq "CONSOLECONNECTIONS")
 		{
@@ -1863,7 +1872,7 @@ sub return_cluster_DRS_recommendations {
 	else
 	{
 		my $cluster = Vim::find_entity_views(view_type => 'ClusterComputeResource', properties => ['name', 'recommendation']);
-		die "There are no clusters\n" if (!defined($cluster));
+		die "Runtime error\n" if (!defined($cluster));
 		die "There are no clusters\n" if (!@$cluster);
 		@clusters = @$cluster;
 	}
@@ -2083,8 +2092,8 @@ sub dc_net_info
 				my $value = 0;
 				grep($value += convert_number($$_[0]->value), @$values);
 				$value = simplify_number($value);
-				$np->add_perfdata(label => "net_usage", value => $value, uom => 'KB', threshold => $np->threshold);
-				$output = "net usage=" . $value . " KB/s"; 
+				$np->add_perfdata(label => "net_usage", value => $value, uom => 'KBps', threshold => $np->threshold);
+				$output = "net usage=" . $value . " KBps"; 
 				$res = $np->check_threshold(check => $value);
 			}
 		}
@@ -2096,8 +2105,8 @@ sub dc_net_info
 				my $value = 0;
 				grep($value += convert_number($$_[0]->value), @$values);
 				$value = simplify_number($value);
-				$np->add_perfdata(label => "net_receive", value => $value, uom => 'KB', threshold => $np->threshold);
-				$output = "net receive=" . $value . " KB/s"; 
+				$np->add_perfdata(label => "net_receive", value => $value, uom => 'KBps', threshold => $np->threshold);
+				$output = "net receive=" . $value . " KBps"; 
 				$res = $np->check_threshold(check => $value);
 			}
 		}
@@ -2109,8 +2118,8 @@ sub dc_net_info
 				my $value = 0;
 				grep($value += convert_number($$_[0]->value), @$values);
 				$value = simplify_number($value);
-				$np->add_perfdata(label => "net_send", value => $value, uom => 'KB', threshold => $np->threshold);
-				$output = "net send=" . $value . " KB/s"; 
+				$np->add_perfdata(label => "net_send", value => $value, uom => 'KBps', threshold => $np->threshold);
+				$output = "net send=" . $value . " KBps"; 
 				$res = $np->check_threshold(check => $value);
 			}
 		}
@@ -2131,10 +2140,10 @@ sub dc_net_info
 			grep($value2 += convert_number($$_[1]->value), @$values);
 			$value1 = simplify_number($value1);
 			$value2 = simplify_number($value2);
-			$np->add_perfdata(label => "net_receive", value => $value1, uom => 'KB', threshold => $np->threshold);
-			$np->add_perfdata(label => "net_send", value => $value2, uom => 'KB', threshold => $np->threshold);
+			$np->add_perfdata(label => "net_receive", value => $value1, uom => 'KBps', threshold => $np->threshold);
+			$np->add_perfdata(label => "net_send", value => $value2, uom => 'KBps', threshold => $np->threshold);
 			$res = 'OK';
-			$output = "net receive=" . $value1 . " KB/s, send=" . $value2 . " KB/s";
+			$output = "net receive=" . $value1 . " KBps, send=" . $value2 . " KBps";
 		}
 	}
 
@@ -2152,6 +2161,9 @@ sub dc_list_vm_volumes_info
 	{
 		$output = "No volume named $subcommand found";
 		my $host_views = Vim::find_entity_views(view_type => 'HostSystem', properties => ['name', 'datastore']);
+		die "Runtime error\n" if (!defined($host_views));
+		die "Datacenter does not contain any hosts\n" if (!@$host_views);
+
 		foreach my $host (@$host_views) {
 			foreach my $ref_store (@{$host->datastore})
 			{
@@ -2180,6 +2192,9 @@ sub dc_list_vm_volumes_info
 		$res = 0;
 		$output = '';
 		my $host_views = Vim::find_entity_views(view_type => 'HostSystem', properties => ['name', 'datastore']);
+		die "Runtime error\n" if (!defined($host_views));
+		die "Datacenter does not contain any hosts\n" if (!@$host_views);
+
 		foreach my $host (@$host_views) {
 			foreach my $ref_store (@{$host->datastore})
 			{
@@ -2365,13 +2380,16 @@ sub dc_runtime_info
 	my $runtime;
 	my $dc_view = Vim::find_entity_view(view_type => 'Datacenter', properties => ['name', 'overallStatus', 'configIssue']);
 
+	die "There are no Datacenter\n" if (!defined($dc_view));
+
 	if (defined($subcommand))
 	{
 		if ((uc($subcommand) eq "LIST") || (uc($subcommand) eq "LISTVM"))
 		{
 			my %vm_state_strings = ("poweredOn" => "UP", "poweredOff" => "DOWN", "suspended" => "SUSPENDED");
 			my $vm_views = Vim::find_entity_views(view_type => 'VirtualMachine', properties => ['name', 'runtime']);
-			die "There are no VMs.\n" if (!defined($vm_views));
+			die "Runtime error\n" if (!defined($vm_views));
+			die "There are no VMs.\n" if (!@$vm_views);
 			my $up = 0;
 			$output = '';
 
@@ -2392,7 +2410,8 @@ sub dc_runtime_info
 		{
 			my %host_state_strings = ("poweredOn" => "UP", "poweredOff" => "DOWN", "suspended" => "SUSPENDED");
 			my $host_views = Vim::find_entity_views(view_type => 'HostSystem');
-			die "There are no Hosts.\n" if (!defined($host_views));
+			die "Runtime error\n" if (!defined($host_views));
+			die "There are no VMs.\n" if (!@$host_views);
 			my $up = 0;
 			$output = '';
 
@@ -2413,7 +2432,7 @@ sub dc_runtime_info
 		elsif (uc($subcommand) eq "STATUS")
 		{
 			$output =  "overall status=" . $dc_view->overallStatus->val;
-			$res = 'OK' if (lc($dc_view->overallStatus->val) eq SENSOR_NORMAL_VALUE);
+			$res = 'OK' if (uc($dc_view->overallStatus->val) eq SENSOR_NORMAL_VALUE);
 		}
 		elsif (uc($subcommand) eq "ISSUES")
 		{
@@ -2445,7 +2464,9 @@ sub dc_runtime_info
 		my $vm_views = Vim::find_entity_views(view_type => 'VirtualMachine', properties => ['name', 'runtime']);
 		my $up = 0;
 
-		if (defined($vm_views))
+		die "Runtime error\n" if (!defined($vm_views));
+		
+		if (@$vm_views)
 		{
 			foreach my $vm (@$vm_views) {
 				$up += $vm->runtime->powerState->val eq "poweredOn";

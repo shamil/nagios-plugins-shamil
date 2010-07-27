@@ -1,4 +1,4 @@
-#!/usr/perl5/bin/perl -w
+#!/usr/bin/perl -w
 #
 # Original script stolen from:
 # check_mem.pl Copyright (C) 2000 Dan Larsson <dl@tyfon.net>
