@@ -1,7 +1,7 @@
 #!/usr/bin/perl -w
 # ============================== Summary =======================================
 # Program : check_redis.pl
-# Version : 2010.7.15
+# Version : 2010.7.29
 # Date    : July 15 2010
 # Updated : July 15 2010
 # Author  : Alex Simenduev - (http://www.planetit.ws)
@@ -13,6 +13,9 @@
 # ================================ Change log ==================================
 # Legend:
 #               [*] Informational, [!] Bugix, [+] Added, [-] Removed
+#
+# Ver 2010.7.29:
+#               [*] Removed unuseful 'print' code
 #
 # Ver 2010.7.15:
 #               [*] Initial implementation.
@@ -88,7 +91,6 @@ elsif ($o_check =~ /^memory$/i) {
 
     $line = <$SOCKET>;
     while ($line ne "\r\n") {
-        print $line;
         $intData = $1 if ($line =~ m/used_memory:([0-9]+)/);                 # Get used bytes
         $used_memory_human = $1 if ($line =~ m/used_memory_human:([\w.]+)/); # Get used in human readable format
         $line = <$SOCKET>;
