@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================== Summary =======================================
 # Program : check_solr.sh
-# Version : 2010.7.14
+# Version : 2010.7.29
 # Date    : July 13 2010
 # Author  : Alex Simenduev - (http://www.planetit.ws)
 # Summary : This is a nagios plugin that checks Apache Solr host
@@ -14,6 +14,9 @@
 # ================================ Change log ==================================
 # Legend:
 #               [*] Informational, [!] Bugix, [+] Added, [-] Removed
+#
+# Ver 2010.7.29:
+#               [*] Reduced number of http(s) requests when checking replication
 #
 # Ver 2010.7.14:
 #               [*] Speed improvement in 'numdocs' metric
@@ -171,11 +174,13 @@ solr_core_replication() {
         return $STATE_UNKNOWN
     }
 
-    local MASTER_URL MASTER_INDEXVER SLAVE_INDEXVER SLAVE_LASTREPLICATED
+    local MASTER_URL MASTER_INDEXVER SLAVE_DETAILS SLAVE_INDEXVER SLAVE_LASTREPLICATED
+
+    # Get slave replication details
+    SLAVE_DETAILS=$(exec_curl ${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/$1/replication?command=details)
 
     # Get master URL of specified core
-    MASTER_URL=$(exec_curl ${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/$1/replication?command=details |
-		xmlstarlet sel -t -v "/response/lst[@name='details']/lst[@name='slave']/str[@name='masterUrl']")
+    MASTER_URL=$(echo $SLAVE_DETAILS | xmlstarlet sel -t -v "/response/lst[@name='details']/lst[@name='slave']/str[@name='masterUrl']")
 
     # Try to connect to master
     MASTER_INDEXVER=$(exec_curl ${MASTER_URL}?command=indexversion) || {
@@ -184,16 +189,17 @@ solr_core_replication() {
     }
 
     # Get index version from master
-    MASTER_INDEXVER=$(echo $MASTER_INDEXVER | xmlstarlet sel -t -v "/response/long[@name='indexversion']")
+    MASTER_INDEXVER=$(echo $MASTER_INDEXVER |
+        xmlstarlet sel -t -v "/response/long[@name='indexversion']")
 
     # Get index version from slave
-    SLAVE_INDEXVER=$(exec_curl ${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/$1/replication?command=details |
-		xmlstarlet sel -t -v "/response/lst[@name='details']/long[@name='indexVersion']")
+    SLAVE_INDEXVER=$(echo $SLAVE_DETAILS |
+        xmlstarlet sel -t -v "/response/lst[@name='details']/long[@name='indexVersion']")
 
     # Check if indexes match each other
     if [ $MASTER_INDEXVER -ne $SLAVE_INDEXVER ]; then
-        SLAVE_LASTREPLICATED=$(exec_curl ${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/$1/replication?command=details |
-    		xmlstarlet sel -t -v "/response/lst[@name='details']/lst[@name='slave']/str[@name='indexReplicatedAt']")
+        SLAVE_LASTREPLICATED=$(echo $SLAVE_DETAILS |
+            xmlstarlet sel -t -v "/response/lst[@name='details']/lst[@name='slave']/str[@name='indexReplicatedAt']")
 
         # Convert the date to unix timestamp and get difference in seconds from NOW
     	SLAVE_LASTREPLICATED=$(date -d "$SLAVE_LASTREPLICATED" +%s)
