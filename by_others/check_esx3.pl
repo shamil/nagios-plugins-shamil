@@ -2164,7 +2164,7 @@ sub dc_list_vm_volumes_info
 		die "Runtime error\n" if (!defined($host_views));
 		die "Datacenter does not contain any hosts\n" if (!@$host_views);
 
-		foreach my $host (@$host_views) {
+		HOSTITER: foreach my $host (@$host_views) {
 			foreach my $ref_store (@{$host->datastore})
 			{
 				my $store = Vim::get_view(mo_ref => $ref_store, properties => ['summary', 'info']);
@@ -2183,6 +2183,7 @@ sub dc_list_vm_volumes_info
 					}				
 					$np->add_perfdata(label => $store->summary->name, value => $perc?$value2:$value1, uom => $perc?'%':'MB', threshold => $np->threshold);
 					$output = $store->summary->name . "=". $value1 . " MB (" . $value2 . "%)";
+					last HOSTITER;
 				}
 			}
 		}
