@@ -96,8 +96,6 @@ eval {
 $PROGNAME = basename($0);
 $VERSION = '0.2.0';
 
-use constant SENSOR_NORMAL_VALUE => 'GREEN';
-
 my $np = Nagios::Plugin->new(
   usage => "Usage: %s -D <data_center> | -H <host_name> [ -N <vm_name> ]\n"
     . "    -u <user> -p <pass> | -f <authfile>\n"
@@ -587,6 +585,20 @@ sub check_percantage
 	my ($number) = shift(@_);
 	my $perc = $number =~ s/\%//;
 	return ($perc, $number);
+}
+
+sub check_health_state
+{
+	my ($state) = shift(@_);
+	my $res = 'CRITICAL';
+
+	if (uc($state) eq "GREEN") {
+		$res = 'OK'
+	} elsif (uc($state) eq "YELLOW") {
+		$res = 'WARNING';
+	}
+	
+	return $res;
 }
 
 #=====================================================================| HOST |============================================================================#
@@ -1148,7 +1160,7 @@ sub host_runtime_info
 				foreach (@$cpuStatusInfo)
 				{
 					# print "CPU Name = ". $_->name .", Label = ". $_->status->label . ", Summary = ". $_->status->summary . ", Key = ". $_->status->key . "\n";
-					if (uc($_->status->key) ne SENSOR_NORMAL_VALUE)
+					if (check_health_state($_->status->key) ne 'OK')
 					{
 						$output .= ", " if ($output);
 						$output .= $_->name . ": " . $_->status->summary;
@@ -1163,7 +1175,7 @@ sub host_runtime_info
 				foreach (@$storageStatusInfo)
 				{
 					# print "Storage Name = ". $_->name .", Label = ". $_->status->label . ", Summary = ". $_->status->summary . ", Key = ". $_->status->key . "\n";
-					if (uc($_->status->key) ne SENSOR_NORMAL_VALUE)
+					if (check_health_state($_->status->key) ne 'OK')
 					{
 						$output .= ", " if ($output);
 						$output .= "Storage " . $_->name . ": " . $_->status->summary;
@@ -1178,7 +1190,7 @@ sub host_runtime_info
 				foreach (@$memoryStatusInfo)
 				{
 					# print "Memory Name = ". $_->name .", Label = ". $_->status->label . ", Summary = ". $_->status->summary . ", Key = ". $_->status->key . "\n";
-					if (uc($_->status->key) ne SENSOR_NORMAL_VALUE)
+					if (check_health_state($_->status->key) ne 'OK')
 					{
 						$output .= ", " if ($output);
 						$output .= "Memory: " . $_->status->summary;
@@ -1193,7 +1205,7 @@ sub host_runtime_info
 				foreach (@$numericSensorInfo)
 				{
 					# print "Sensor Name = ". $_->name .", Type = ". $_->sensorType . ", Label = ". $_->healthState->label . ", Summary = ". $_->healthState->summary . ", Key = " . $_->healthState->key . "\n";
-					if (uc($_->healthState->key) ne SENSOR_NORMAL_VALUE)
+					if (check_health_state($_->healthState->key) ne 'OK')
 					{
 						$output .= ", " if ($output);
 						$output .= $_->sensorType . " sensor " . $_->name . ": ".$_->healthState->summary;
@@ -1249,8 +1261,9 @@ sub host_runtime_info
 		}
 		elsif (uc($subcommand) eq "STATUS")
 		{
-			$output =  "overall status=" . $host_view->overallStatus->val;
-			$res = 'OK' if (uc($host_view->overallStatus->val) eq SENSOR_NORMAL_VALUE);
+			my $status = $host_view->overallStatus->val;
+			$output =  "overall status=" . $status;
+			$res = check_health_state($status);
 		}
 		elsif (uc($subcommand) eq "ISSUES")
 		{
@@ -1312,7 +1325,7 @@ sub host_runtime_info
 			foreach (@$cpuStatusInfo)
 			{
 				$SensorCount++;
-				$AlertCount++ if (uc($_->status->key) ne SENSOR_NORMAL_VALUE);
+				$AlertCount++ if (check_health_state($_->status->key) ne 'OK');
 			}
 		}
 
@@ -1321,7 +1334,7 @@ sub host_runtime_info
 			foreach (@$storageStatusInfo)
 			{
 				$SensorCount++;
-				$AlertCount++ if (uc($_->status->key) ne SENSOR_NORMAL_VALUE);
+				$AlertCount++ if (check_health_state($_->status->key) ne 'OK');
 			}
 		}
 
@@ -1330,7 +1343,7 @@ sub host_runtime_info
 			foreach (@$memoryStatusInfo)
 			{
 				$SensorCount++;
-				$AlertCount++ if (uc($_->status->key) ne SENSOR_NORMAL_VALUE);
+				$AlertCount++ if (check_health_state($_->status->key) ne 'OK');
 			}
 		}
 
@@ -1339,7 +1352,7 @@ sub host_runtime_info
 			foreach (@$numericSensorInfo)
 			{
 				$SensorCount++;
-				$AlertCount++ if (uc($_->healthState->key) ne SENSOR_NORMAL_VALUE);
+				$AlertCount++ if (check_health_state($_->healthState->key) ne 'OK');
 			}
 		}
 
@@ -1790,8 +1803,9 @@ sub vm_runtime_info
 		}
 		elsif (uc($subcommand) eq "STATUS")
 		{
-			$output = "\"$vmname\" overall status=" . $vm_view->overallStatus->val;
-			$res = 'OK' if (uc($vm_view->overallStatus->val) eq SENSOR_NORMAL_VALUE);
+			my $status = $vm_view->overallStatus->val;
+			$output = "\"$vmname\" overall status=" . $status;
+			$res = check_health_state($status);
 		}
 		elsif (uc($subcommand) eq "CONSOLECONNECTIONS")
 		{
@@ -2432,8 +2446,9 @@ sub dc_runtime_info
 		}
 		elsif (uc($subcommand) eq "STATUS")
 		{
-			$output =  "overall status=" . $dc_view->overallStatus->val;
-			$res = 'OK' if (uc($dc_view->overallStatus->val) eq SENSOR_NORMAL_VALUE);
+			my $status = $dc_view->overallStatus->val;
+			$output =  "overall status=" . $status;
+			$res = check_health_state($status);
 		}
 		elsif (uc($subcommand) eq "ISSUES")
 		{
