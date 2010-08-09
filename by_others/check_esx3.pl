@@ -100,6 +100,7 @@ my $np = Nagios::Plugin->new(
   usage => "Usage: %s -D <data_center> | -H <host_name> [ -N <vm_name> ]\n"
     . "    -u <user> -p <pass> | -f <authfile>\n"
     . "    -l <command> [ -s <subcommand> ]\n"
+    . "    [ -x <black list> ]\n"
     . "    [ -t <timeout> ] [ -w <warn_range> ] [ -c <crit_range> ]\n"
     . '    [ -V ] [ -h ]',
   version => $VERSION,
@@ -272,6 +273,13 @@ $np->add_arg(
   required => 0,
 );
 
+$np->add_arg(
+  spec => 'exclude|x=s',
+  help => "-x, --exclude=<black list>\n"
+    . '   Specify black list',
+  required => 0,
+);
+
 $np->getopts;
 
 my $host = $np->opts->host;
@@ -285,6 +293,7 @@ my $critical = $np->opts->critical;
 my $command = $np->opts->command;
 my $subcommand = $np->opts->subcommand;
 my $sessionfile = $np->opts->sessionfile;
+my $blacklist = $np->opts->exclude;
 my $percw;
 my $percc;
 $output = "Unknown ERROR!";
@@ -404,7 +413,7 @@ eval
 		}
 		elsif (uc($command) eq "VMFS")
 		{
-			($result, $output) = host_list_vm_volumes_info($esx, $np, $subcommand, $percc || $percw);
+			($result, $output) = host_list_vm_volumes_info($esx, $np, $subcommand, $blacklist, $percc || $percw);
 		}
 		elsif (uc($command) eq "RUNTIME")
 		{
@@ -446,7 +455,7 @@ eval
 		}
 		elsif (uc($command) eq "VMFS")
 		{
-			($result, $output) = dc_list_vm_volumes_info($np, $subcommand, $percc || $percw);
+			($result, $output) = dc_list_vm_volumes_info($np, $subcommand, $blacklist, $percc || $percw);
 		}
 		elsif (uc($command) eq "RUNTIME")
 		{
@@ -590,12 +599,14 @@ sub check_percantage
 sub check_health_state
 {
 	my ($state) = shift(@_);
-	my $res = 'CRITICAL';
+	my $res = UNKNOWN;
 
 	if (uc($state) eq "GREEN") {
-		$res = 'OK'
+		$res = OK
 	} elsif (uc($state) eq "YELLOW") {
-		$res = 'WARNING';
+		$res = WARNING;
+	} elsif (uc($state) eq "RED") {
+		$res = CRITICAL;
 	}
 	
 	return $res;
@@ -1039,7 +1050,7 @@ sub host_disk_io_info
 
 sub host_list_vm_volumes_info
 {
-	my ($host, $np, $subcommand, $perc) = @_;
+	my ($host, $np, $subcommand, $blacklist, $perc) = @_;
 	 
 	my $res = 'CRITICAL';
 	my $output = 'HOST VM VOLUMES Unknown error';
@@ -1073,26 +1084,32 @@ sub host_list_vm_volumes_info
 	}
 	else
 	{
-		$res = 0;
+		$res = OK;
 		$output = '';
 		my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'datastore']);
 		die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
 		foreach my $ref_store (@{$host_view->datastore})
 		{
 			my $store = Vim::get_view(mo_ref => $ref_store, properties => ['summary', 'info']);
+			
+			if (defined($blacklist))
+			{
+					my $name = $store->summary->name;
+					next if ($blacklist =~ m/(^|\s|\t|,)\Q$name\E($|\s|\t|,)/);
+			}
+			
 			my $value1 = simplify_number(convert_number($store->summary->freeSpace) / 1024 / 1024);
 			my $value2 = simplify_number(convert_number($store->info->freeSpace) / convert_number($store->summary->capacity) * 100);
-			if (!$res)
+
+			if ($perc)
 			{
-				if ($perc)
-				{
-					$res = $np->check_threshold(check => $value2);
-				}
-				else
-				{
-					$res = $np->check_threshold(check => $value1);
-				}
+				$res = Nagios::Plugin::Functions::max_state($res, $np->check_threshold(check => $value2));
 			}
+			else
+			{
+				$res = Nagios::Plugin::Functions::max_state($res, $np->check_threshold(check => $value1));
+			}
+
 			$np->add_perfdata(label => $store->summary->name, value => $perc?$value2:$value1, uom => $perc?'%':'MB', threshold => $np->threshold);
 			$output .= $store->summary->name . "=". $value1 . " MB (" . $value2 . "%), ";
 		}
@@ -1122,7 +1139,7 @@ sub host_runtime_info
 		if (uc($subcommand) eq "CON")
 		{
 			$output =  "connection state=" . $runtime->connectionState->val;
-			$res = 'OK' if ($runtime->connectionState->val eq "connected");
+			$res = 'OK' if (uc($runtime->connectionState->val) eq "CONNECTED");
 		}
 		elsif (uc($subcommand) eq "HEALTH")
 		{
@@ -1132,6 +1149,8 @@ sub host_runtime_info
 			my $storageStatusInfo = $runtime->healthSystemRuntime->hardwareStatusInfo->storageStatusInfo;
 			my $memoryStatusInfo = $runtime->healthSystemRuntime->hardwareStatusInfo->memoryStatusInfo;
 			my $numericSensorInfo = $runtime->healthSystemRuntime->systemHealthInfo->numericSensorInfo;
+
+			$res = UNKNOWN;
 
 			if (!defined($cpuStatusInfo))
 			{
@@ -1160,8 +1179,10 @@ sub host_runtime_info
 				foreach (@$cpuStatusInfo)
 				{
 					# print "CPU Name = ". $_->name .", Label = ". $_->status->label . ", Summary = ". $_->status->summary . ", Key = ". $_->status->key . "\n";
-					if (check_health_state($_->status->key) ne 'OK')
+					my $state = check_health_state($_->status->key);
+					if ($state != OK)
 					{
+						$res = Nagios::Plugin::Functions::max_state($res, $state);
 						$output .= ", " if ($output);
 						$output .= $_->name . ": " . $_->status->summary;
 						$AlertCount++;
@@ -1175,8 +1196,10 @@ sub host_runtime_info
 				foreach (@$storageStatusInfo)
 				{
 					# print "Storage Name = ". $_->name .", Label = ". $_->status->label . ", Summary = ". $_->status->summary . ", Key = ". $_->status->key . "\n";
-					if (check_health_state($_->status->key) ne 'OK')
+					my $state = check_health_state($_->status->key);
+					if ($state != OK)
 					{
+						$res = Nagios::Plugin::Functions::max_state($res, $state);
 						$output .= ", " if ($output);
 						$output .= "Storage " . $_->name . ": " . $_->status->summary;
 						$AlertCount++;
@@ -1190,8 +1213,10 @@ sub host_runtime_info
 				foreach (@$memoryStatusInfo)
 				{
 					# print "Memory Name = ". $_->name .", Label = ". $_->status->label . ", Summary = ". $_->status->summary . ", Key = ". $_->status->key . "\n";
-					if (check_health_state($_->status->key) ne 'OK')
+					my $state = check_health_state($_->status->key);
+					if ($state != OK)
 					{
+						$res = Nagios::Plugin::Functions::max_state($res, $state);
 						$output .= ", " if ($output);
 						$output .= "Memory: " . $_->status->summary;
 						$AlertCount++;
@@ -1205,8 +1230,10 @@ sub host_runtime_info
 				foreach (@$numericSensorInfo)
 				{
 					# print "Sensor Name = ". $_->name .", Type = ". $_->sensorType . ", Label = ". $_->healthState->label . ", Summary = ". $_->healthState->summary . ", Key = " . $_->healthState->key . "\n";
-					if (check_health_state($_->healthState->key) ne 'OK')
+					my $state = check_health_state($_->healthState->key);
+					if ($state != OK)
 					{
+						$res = Nagios::Plugin::Functions::max_state($res, $state);
 						$output .= ", " if ($output);
 						$output .= $_->sensorType . " sensor " . $_->name . ": ".$_->healthState->summary;
 						$AlertCount++;
@@ -1325,7 +1352,7 @@ sub host_runtime_info
 			foreach (@$cpuStatusInfo)
 			{
 				$SensorCount++;
-				$AlertCount++ if (check_health_state($_->status->key) ne 'OK');
+				$AlertCount++ if (check_health_state($_->status->key) != OK);
 			}
 		}
 
@@ -1334,7 +1361,7 @@ sub host_runtime_info
 			foreach (@$storageStatusInfo)
 			{
 				$SensorCount++;
-				$AlertCount++ if (check_health_state($_->status->key) ne 'OK');
+				$AlertCount++ if (check_health_state($_->status->key) != OK);
 			}
 		}
 
@@ -1343,7 +1370,7 @@ sub host_runtime_info
 			foreach (@$memoryStatusInfo)
 			{
 				$SensorCount++;
-				$AlertCount++ if (check_health_state($_->status->key) ne 'OK');
+				$AlertCount++ if (check_health_state($_->status->key) != OK);
 			}
 		}
 
@@ -1352,7 +1379,7 @@ sub host_runtime_info
 			foreach (@$numericSensorInfo)
 			{
 				$SensorCount++;
-				$AlertCount++ if (check_health_state($_->healthState->key) ne 'OK');
+				$AlertCount++ if (check_health_state($_->healthState->key) != OK);
 			}
 		}
 
@@ -2166,8 +2193,8 @@ sub dc_net_info
 
 sub dc_list_vm_volumes_info
 {
-	my ($np, $subcommand, $perc) = @_;
-	 
+	my ($np, $subcommand, $blacklist, $perc) = @_;
+	
 	my $res = 'CRITICAL';
 	my $output = 'DC VM VOLUMES Unknown error';
 
@@ -2204,7 +2231,7 @@ sub dc_list_vm_volumes_info
 	}
 	else
 	{
-		$res = 0;
+		$res = OK;
 		$output = '';
 		my $host_views = Vim::find_entity_views(view_type => 'HostSystem', properties => ['name', 'datastore']);
 		die "Runtime error\n" if (!defined($host_views));
@@ -2214,19 +2241,25 @@ sub dc_list_vm_volumes_info
 			foreach my $ref_store (@{$host->datastore})
 			{
 				my $store = Vim::get_view(mo_ref => $ref_store, properties => ['summary', 'info']);
+
+				if (defined($blacklist))
+				{
+					my $name = $store->summary->name;
+					next if ($blacklist =~ m/(^|\s|\t|,)\Q$name\E($|\s|\t|,)/);
+				}
+
 				my $value1 = simplify_number(convert_number($store->summary->freeSpace) / 1024 / 1024);
 				my $value2 = simplify_number(convert_number($store->info->freeSpace) / convert_number($store->summary->capacity) * 100);
-				if (!$res)
+
+				if ($perc)
 				{
-					if ($perc)
-					{
-						$res = $np->check_threshold(check => $value2);
-					}
-					else
-					{
-						$res = $np->check_threshold(check => $value1);
-					}
+					$res = Nagios::Plugin::Functions::max_state($res, $np->check_threshold(check => $value2));
 				}
+				else
+				{
+					$res = Nagios::Plugin::Functions::max_state($res, $np->check_threshold(check => $value1));
+				}
+
 				$np->add_perfdata(label => $store->summary->name, value => $perc?$value2:$value1, uom => $perc?'%':'MB', threshold => $np->threshold);
 				$output .= $store->summary->name . "=". $value1 . " MB (" . $value2 . "%), ";
 			}
