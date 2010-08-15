@@ -139,6 +139,9 @@ print $STATES[$intState] . " - $strOutput|$strPerfData\n";
 # Close connection
 close($SOCKET);
 
+# Finally exit with current state error code.
+exit $intState;
+
 # This sub parses the command line arguments
 sub check_arguments {
     # if no arguments specified just print usage

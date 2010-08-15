@@ -1152,30 +1152,10 @@ sub host_runtime_info
 
 			$res = UNKNOWN;
 
-			if (!defined($cpuStatusInfo))
-			{
-				$res = 'CRITICAL';
-				$output = "API error - unable to get cpuStatusInfo\n";
-			}
-			elsif (!defined($storageStatusInfo))
-			{
-				$res = 'CRITICAL';
-				$output = "API error - unable to get storageStatusInfo\n";
-			}
-			elsif (!defined($memoryStatusInfo))
-			{
-				$res = 'CRITICAL';
-				$output = "API error - unable to get memoryStatusInfo\n";
-			}
-			elsif (!defined($numericSensorInfo))
-			{
-				$res = 'CRITICAL';
-				$output = "API error - unable to get numericSensorInfo\n";
-			}
-			else
-			{
-				$output = '';
+			$output = '';
 
+			if (defined($cpuStatusInfo))
+			{
 				foreach (@$cpuStatusInfo)
 				{
 					# print "CPU Name = ". $_->name .", Label = ". $_->status->label . ", Summary = ". $_->status->summary . ", Key = ". $_->status->key . "\n";
@@ -1192,7 +1172,10 @@ sub host_runtime_info
 						$OKCount++;
 					}
 				}
+			}
 
+			if (defined($storageStatusInfo))
+			{
 				foreach (@$storageStatusInfo)
 				{
 					# print "Storage Name = ". $_->name .", Label = ". $_->status->label . ", Summary = ". $_->status->summary . ", Key = ". $_->status->key . "\n";
@@ -1209,7 +1192,10 @@ sub host_runtime_info
 						$OKCount++;
 					}
 				}
+			}
 
+			if (defined($memoryStatusInfo))
+			{
 				foreach (@$memoryStatusInfo)
 				{
 					# print "Memory Name = ". $_->name .", Label = ". $_->status->label . ", Summary = ". $_->status->summary . ", Key = ". $_->status->key . "\n";
@@ -1226,7 +1212,10 @@ sub host_runtime_info
 						$OKCount++;
 					}
 				}
+			}
 
+			if (defined($numericSensorInfo))
+			{
 				foreach (@$numericSensorInfo)
 				{
 					# print "Sensor Name = ". $_->name .", Type = ". $_->sensorType . ", Label = ". $_->healthState->label . ", Summary = ". $_->healthState->summary . ", Key = " . $_->healthState->key . "\n";
@@ -1243,20 +1232,19 @@ sub host_runtime_info
 						$OKCount++;
 					}
 				}
-
-				if ($output)
-				{
-					$output = "$AlertCount health issue(s) found: $output";
-				}
-				else
-				{
-					$output = "All $OKCount health checks are Green";
-					$res = 'OK';
-				}
-
-				$np->add_perfdata(label => "Alerts", value => $AlertCount);
 			}
 
+			if ($output)
+			{
+				$output = "$AlertCount health issue(s) found: $output";
+			}
+			else
+			{
+				$output = "All $OKCount health checks are Green";
+				$res = 'OK';
+			}
+
+			$np->add_perfdata(label => "Alerts", value => $AlertCount);
 		}
 		elsif (uc($subcommand) eq "MAINTENANCE")
 		{
