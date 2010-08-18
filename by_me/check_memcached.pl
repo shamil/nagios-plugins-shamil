@@ -1,9 +1,9 @@
 #!/usr/bin/perl -w
 # ============================== Summary =======================================
 # Program : check_memcached.pl
-# Version : 2010.7.14
+# Version : 2010.8.18
 # Date    : May 25 2010
-# Updated : July 14 2010
+# Updated : Aug 18 2010
 # Author  : Alex Simenduev - (http://www.planetit.ws)
 # Summary : This is a nagios plugin that checks memcached server state
 #
@@ -14,6 +14,10 @@
 # ================================ Change log ==================================
 # Legend:
 #               [*] Informational, [!] Bugix, [+] Added, [-] Removed
+#
+# Ver 2010.8.18:
+#               [*] Changed eviction check to calculate values per interval
+#               [+] Added 2 helper functions to the plugin
 #
 # Ver 2010.7.14:
 #               [!] Corrected output message when plugin cannot connect to host
@@ -31,7 +35,7 @@ use File::Basename;
 
 # Variables Section
 # -------------------------------------------------------------------------- #
-my $VERSION       = "2010.7.14";
+my $VERSION       = "2010.8.18";
 my $SCRIPT_NAME   = basename(__FILE__);
 my $TIMEOUT       = 10;
 
@@ -50,7 +54,7 @@ my $o_host	    = undef; # Hostname
 my $o_port	    = undef; # Port
 my $o_warn	    = undef; # Warning level
 my $o_crit	    = undef; # Critical level
-my $o_check	    = undef; # What to check (items, connections, memory)
+my $o_check	    = undef; # What to check (items, connections, memory, evictions)
 my $o_inverse   = undef; # Use inverse calculation of warning/critical thresholds
 my $o_version	= undef; # Script version
 
@@ -120,11 +124,17 @@ elsif ($o_check =~ /^memory$/i) {
 elsif ($o_check =~ /^evictions$/i) {
     my $line = <$SOCKET>;
     while ($line ne "END\r\n") {
-        $intData = $1 if ($line =~ m/STAT evictions ([0-9]+)/);  # Get number of evictions
+        if ($line =~ m/STAT evictions ([0-9]+)/) {
+            my $tmp_file = "/tmp/$SCRIPT_NAME-$o_host-$o_check"
+            my ($delta, $interval) = get_delta_values($tmp_file, $1);
+            $intData = sprintf("%.2f", $delta / $interval);
+            last;
+        }
+
         $line = <$SOCKET>;
     }
 
-    $strOutput    = "$intData number of evictions";
+    $strOutput    = "$intData number of evictions in " . convert_time($interval);
     $strPerfData  = "'Evictions'=" . $intData . ";;;;";
 }
 # Get uptime
@@ -170,6 +180,74 @@ close($SOCKET);
 
 # Finally exit with current state error code.
 exit $intState;
+
+# Convert time in seconds, into something that is more human readable
+# e.g. 2d 6h 10m 8s
+sub convert_time {
+    my ($time, $days, $hours, $minutes, $seconds);
+
+    # Get time in seconds
+    $time = shift;
+
+    # Get days
+    $days = int($time / 86400);
+    $time -= ($days * 86400);
+
+    # Get hours
+    $hours = int($time / 3600);
+    $time -= ($hours * 3600);
+
+    # Get minutes & seconds
+    $minutes = int($time / 60);
+    $seconds = $time % 60;
+
+    $days    = $days < 1 ? "" : $days . "d ";
+    $hours   = $hours < 1 ? "" : $hours ."h ";
+    $minutes = $minutes < 1 ? "" : $minutes . "m ";
+    $days . $hours . $minutes . $seconds . " s";
+
+    return $time;
+}
+
+# Get delta values, using temp file
+# Returns list with 2 values:
+#   1: Metric delta
+#   2: Interval in seconds
+sub get_delta_values {
+    my $timestamp = time();
+    my ($tmp_file, $metricval) = @_;
+    my ($timestamp_diff, $metricval_diff) = (1, 0); # Minimum interval is 1 second
+
+    # Open file to get saved data
+    if (-e $tmp_file) {
+        if (open(FILE, "< $tmp_file")) {
+            my $saved_data = <FILE>;     # read first line from file,
+            close(FILE);                 # then close the file
+
+            $saved_data =~ /^(.*),(.*)/; # parse the "saved data" line
+            $timestamp_diff = $timestamp - $1;
+            $metricval_diff = $metricval - $2;
+        }
+        else {
+            print "UNKNOWN: Unable to open '$tmp_file' file\n";
+            exit $STATE_UNKNOWN;
+        }
+    }
+
+    # Open/Create a temp file
+    if (open(FILE, "+> $tmp_file")) {
+        # then save new data to it
+        print FILE "$timestamp,$metricval";
+        close(FILE);
+    }
+    else {
+        print "UNKNOWN: Unable to open '$tmp_file' file\n";
+        exit $STATE_UNKNOWN;
+    }
+
+    # Return the deltas ...
+    return ($metricval_diff, $timestamp_diff);
+}
 
 # This sub parses the command line arguments
 sub check_arguments {
