@@ -206,7 +206,7 @@ sub convert_time {
     $days    = $days < 1 ? "" : $days . "d ";
     $hours   = $hours < 1 ? "" : $hours ."h ";
     $minutes = $minutes < 1 ? "" : $minutes . "m ";
-    $days . $hours . $minutes . $seconds . " s";
+    $time = $days . $hours . $minutes . $seconds . " s";
 
     return $time;
 }
