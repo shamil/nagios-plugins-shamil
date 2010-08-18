@@ -135,7 +135,7 @@ elsif ($o_check =~ /^evictions$/i) {
         $line = <$SOCKET>;
     }
 
-    $intData     = sprintf("%.2f", $delta / $interval);
+    $intData     = sprintf("%d", $delta / $interval);
     $strOutput   = "$intData number of evictions in " . convert_time($interval);
     $strPerfData = "'Evictions'=" . $intData . ";;;;";
 }
@@ -206,7 +206,7 @@ sub convert_time {
     $days    = $days < 1 ? "" : $days . "d ";
     $hours   = $hours < 1 ? "" : $hours ."h ";
     $minutes = $minutes < 1 ? "" : $minutes . "m ";
-    $time = $days . $hours . $minutes . $seconds . " s";
+    $time = $days . $hours . $minutes . $seconds . "s";
 
     return $time;
 }
