@@ -123,19 +123,18 @@ elsif ($o_check =~ /^memory$/i) {
 # Get number evictions
 elsif ($o_check =~ /^evictions$/i) {
     my $tmp_file = "/tmp/$SCRIPT_NAME-$o_host-$o_check";
-    my ($delta, $interval);
+    my $interval;
 
     my $line = <$SOCKET>;
     while ($line ne "END\r\n") {
         if ($line =~ m/STAT evictions ([0-9]+)/) {
-            ($delta, $interval) = get_delta_values($tmp_file, $1);
+            ($intData, $interval) = get_delta_values($tmp_file, $1);
             last;
         }
 
         $line = <$SOCKET>;
     }
 
-    $intData     = sprintf("%d", $delta / $interval);
     $strOutput   = "$intData number of evictions in " . convert_time($interval);
     $strPerfData = "'Evictions'=" . $intData . ";;;;";
 }
