@@ -424,6 +424,10 @@ eval
 		{
 			($result, $output) = host_service_info($esx, $np, $subcommand);
 		}
+		elsif (uc($command) eq "STORAGE")
+		{
+			($result, $output) = host_storage_info($esx, $np, $subcommand);
+		}
 		else
 		{
 			$output = "Unknown HOST command\n" . $np->opts->_help;
@@ -1541,6 +1545,269 @@ sub host_service_info
 		$output .= $_->key . " (" . $service_state{$_->running} . "), " foreach (@$services);	
 		chop($output);
 		chop($output);
+	}
+
+	return ($res, $output);
+}
+
+sub host_storage_info
+{
+	my ($host, $np, $subcommand) = @_;
+
+	my $count = 0;
+	my $res = 'CRITICAL';
+	my $output = 'HOST RUNTIME Unknown error';
+	my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'configManager']);
+	die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
+
+	my $storage = Vim::get_view(mo_ref => $host_view->configManager->storageSystem, properties => ['storageDeviceInfo', 'multipathStateInfo']);
+
+	if (defined($subcommand))
+	{
+		my $state = OK;
+		if (uc($subcommand) eq "ADAPTER")
+		{
+			$output = "";
+			$res = OK;
+			foreach my $dev (@{$storage->storageDeviceInfo->hostBusAdapter})
+			{
+				my $status = UNKNOWN; # For unkonwn or other statuses
+				if (uc($dev->status) eq "ONLINE")
+				{
+					$status = OK;
+					$count++;
+				}
+				elsif (uc($dev->status) eq "OFFLINE")
+				{
+					$status = WARNING;
+				}
+				elsif (uc($dev->status) eq "FAULT")
+				{
+					$status = CRITICAL;
+				}
+				else
+				{
+					$res = UNKNOWN;
+				}
+				$state = Nagios::Plugin::Functions::max_state($state, $status);
+				$output .= $dev->device . " (" . $dev->status . "); ";
+			}
+			$np->add_perfdata(label => "adapters", value => $count, uom => 'units', threshold => $np->threshold);
+			$res = $state if ($state != OK);
+		}
+		elsif (uc($subcommand) eq "LUN")
+		{
+			$output = "";
+			$res = OK;
+			foreach my $scsi (@{$storage->storageDeviceInfo->scsiLun})
+			{
+				my $status = UNKNOWN; # For unkonwn or other statuses
+				if (exists($scsi->{displayName}))
+				{
+					$output .= $scsi->displayName;
+				}
+				elsif (exists($scsi->{canonicalName}))
+				{
+					$output .= $scsi->canonicalName;
+				}
+				else
+				{
+					$output .= $scsi->deviceName;
+				}
+
+				foreach (@{$scsi->operationalState})
+				{
+					if (uc($_) eq "OK")
+					{
+						$status = OK;
+						$count++;
+					}
+					elsif (uc($_) eq "ERROR")
+					{
+						$status = CRITICAL;
+					}
+					elsif (uc($_) eq "UNKNOWNSTATE")
+					{
+						$status = UNKNOWN;
+					}
+					elsif (uc($_) eq "OFF")
+					{
+						$status = CRITICAL;
+					}
+					elsif (uc($_) eq "QUIESCED")
+					{
+						$status = WARNING;
+					}
+					elsif (uc($_) eq "DEGRADED")
+					{
+						$status = WARNING;
+					}
+					elsif (uc($_) eq "LOSTCOMMUNICATION")
+					{
+						$status = CRITICAL;
+					}
+					else
+					{
+						$res = UNKNOWN;
+						$status = UNKNOWN;
+					}
+					$state = Nagios::Plugin::Functions::max_state($state, $status);
+				}
+
+				$output .= " <" . join("-", @{$scsi->operationalState}) . ">; ";
+			}
+			$np->add_perfdata(label => "LUNs", value => $count, uom => 'units', threshold => $np->threshold);
+			$res = $state if ($state != OK);
+		}
+		elsif (uc($subcommand) eq "PATH")
+		{
+			$output = "";
+			$res = OK;
+			foreach my $path (@{$storage->multipathStateInfo->path})
+			{
+				my $status = UNKNOWN; # For unkonwn or other statuses
+				if (uc($path->pathState) eq "ACTIVE")
+				{
+					$status = OK;
+					$count++;
+				}
+				elsif (uc($path->pathState) eq "DISABLED")
+				{
+					$status = WARNING;
+				}
+				elsif (uc($path->pathState) eq "STANDBY")
+				{
+					$status = WARNING;
+				}
+				elsif (uc($path->pathState) eq "DEAD")
+				{
+					$status = CRITICAL;
+				}
+				else
+				{
+					$res = UNKNOWN;
+				}
+				$state = Nagios::Plugin::Functions::max_state($state, $status);
+				$output .= $path->name . " <" . $path->pathState . ">; ";
+			}
+			$res = $state if ($state != OK);
+			$np->add_perfdata(label => "paths", value => $count, uom => 'units', threshold => $np->threshold);
+		}
+		else
+		{
+			$res = 'CRITICAL';
+			$output = "HOST STORAGE - unknown subcommand\n" . $np->opts->_help;
+		}
+	}
+	else
+	{
+		my $status = UNKNOWN;
+		my $state = OK;
+		$output = "";
+		$res = OK;
+		foreach my $dev (@{$storage->storageDeviceInfo->hostBusAdapter})
+		{
+			$status = UNKNOWN;
+			if (uc($dev->status) eq "ONLINE")
+			{
+				$status = OK;
+				$count++;
+			}
+			elsif (uc($dev->status) eq "OFFLINE")
+			{
+				$status = WARNING;
+			}
+			elsif (uc($dev->status) eq "FAULT")
+			{
+				$status = CRITICAL;
+			}
+			else
+			{
+				$res = UNKNOWN;
+			}
+			$state = Nagios::Plugin::Functions::max_state($state, $status);
+		}
+		$np->add_perfdata(label => "adapters", value => $count, uom => 'units', threshold => $np->threshold);
+		$output .= $count . "/" . @{$storage->storageDeviceInfo->hostBusAdapter} . " adapters online, ";
+
+		$count = 0;
+		foreach my $scsi (@{$storage->storageDeviceInfo->scsiLun})
+		{
+			$status = UNKNOWN;
+			foreach (@{$scsi->operationalState})
+			{
+				if (uc($_) eq "OK")
+				{
+					$status = OK;
+					$count++;
+				}
+				elsif (uc($_) eq "ERROR")
+				{
+					$status = CRITICAL;
+				}
+				elsif (uc($_) eq "UNKNOWNSTATE")
+				{
+					$status = UNKNOWN;
+				}
+				elsif (uc($_) eq "OFF")
+				{
+					$status = CRITICAL;
+				}
+				elsif (uc($_) eq "QUIESCED")
+				{
+					$status = WARNING;
+				}
+				elsif (uc($_) eq "DEGRADED")
+				{
+					$status = WARNING;
+				}
+				elsif (uc($_) eq "LOSTCOMMUNICATION")
+				{
+					$status = CRITICAL;
+				}
+				else
+				{
+					$res = UNKNOWN;
+					$status = UNKNOWN;
+				}
+				$state = Nagios::Plugin::Functions::max_state($state, $status);
+			}
+		}
+		$np->add_perfdata(label => "LUNs", value => $count, uom => 'units', threshold => $np->threshold);
+		$output .= $count . "/" . @{$storage->storageDeviceInfo->scsiLun} . " LUNs ok, ";
+
+		$count = 0;
+		foreach my $path (@{$storage->multipathStateInfo->path})
+		{
+			$status = UNKNOWN;
+			if (uc($path->pathState) eq "ACTIVE")
+			{
+				$status = OK;
+				$count++;
+			}
+			elsif (uc($path->pathState) eq "DISABLED")
+			{
+				$status = WARNING;
+			}
+			elsif (uc($path->pathState) eq "STANDBY")
+			{
+				$status = WARNING;
+			}
+			elsif (uc($path->pathState) eq "DEAD")
+			{
+				$status = CRITICAL;
+			}
+			else
+			{
+				$res = UNKNOWN;
+				$status = UNKNOWN;
+			}
+			$state = Nagios::Plugin::Functions::max_state($state, $status);
+		}
+		$np->add_perfdata(label => "paths", value => $count, uom => 'units', threshold => $np->threshold);
+		$output .= $count . "/" . @{$storage->multipathStateInfo->path} . " Paths Active";
+
+		$res = $state if ($state != OK);
 	}
 
 	return ($res, $output);
