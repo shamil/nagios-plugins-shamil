@@ -22,9 +22,9 @@ use Getopt::Long;
 use Pod::Usage;
 use DBI;
 use lib qw(
-    /usr/local/nagios/libexec
     /usr/lib/nagios/plugins
     /usr/lib64/nagios/plugins
+    /usr/local/nagios/libexec
 );
 use utils qw(%ERRORS);
 

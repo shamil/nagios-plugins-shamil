@@ -91,7 +91,7 @@ Note: \"Crypt::SSLeay\" and \"Compress::Zlib\" are not needed for check_esx3 to 
 
 eval { 
 	require VMware::VIRuntime
-} or Nagios::Plugin::Functions::nagios_exit('UNKNOWN', "Missing perl module VMware::VIRuntime. Download and install \'VMware Infrastructure (VI) Perl Toolkit\', available at http://www.vmware.com/download/sdk/\n $perl_module_instructions");
+} or Nagios::Plugin::Functions::nagios_exit(UNKNOWN, "Missing perl module VMware::VIRuntime. Download and install \'VMware Infrastructure (VI) Perl Toolkit\', available at http://www.vmware.com/download/sdk/\n $perl_module_instructions");
 
 $PROGNAME = basename($0);
 $VERSION = '0.2.0';
@@ -171,6 +171,10 @@ my $np = Nagios::Plugin->new(
     . "        * service - shows Host service info\n"
     . "            + (names) - check the state of one or several services specified by (names), syntax for (names):<service1>,<service2>,...,<serviceN>\n"
     . "            ^ show all services\n"
+    . "        * storage - shows Host storage info\n"
+    . "            + adapter - list bus adapters\n"
+    . "            + lun - list SCSI logical units\n"
+    . "            + path - list logical unit paths\n"
     . "    DC specific :\n"
     . "        * io - shows disk io info\n"
     . "            + aborted - aborted commands count\n"
@@ -298,7 +302,7 @@ my $blacklist = $np->opts->exclude;
 my $percw;
 my $percc;
 $output = "Unknown ERROR!";
-$result = 'CRITICAL';
+$result = CRITICAL;
 
 if (defined($subcommand))
 {
@@ -357,7 +361,7 @@ eval
 	}
 	else
 	{
-		$np->nagios_exit('CRITICAL', "No Host or Datacenter specified");
+		$np->nagios_exit(CRITICAL, "No Host or Datacenter specified");
 	}
 	if (defined($sessionfile))
 	{
@@ -389,7 +393,7 @@ eval
 		else
 		{
 			$output = "Unknown HOST-VM command\n" . $np->opts->_help;
-			$result = 'CRITICAL';
+			$result = CRITICAL;
 		}
 	}
 	elsif (defined($host))
@@ -426,12 +430,12 @@ eval
 		}
 		elsif (uc($command) eq "STORAGE")
 		{
-			($result, $output) = host_storage_info($esx, $np, $subcommand);
+			($result, $output) = host_storage_info($esx, $np, $subcommand, $blacklist);
 		}
 		else
 		{
 			$output = "Unknown HOST command\n" . $np->opts->_help;
-			$result = 'CRITICAL';
+			$result = CRITICAL;
 		}
 	}
 	else
@@ -469,14 +473,14 @@ eval
 		else
 		{
 			$output = "Unknown HOST command\n" . $np->opts->_help;
-			$result = 'CRITICAL';
+			$result = CRITICAL;
 		}		
 	}
 };
 if ($@)
 {
-	$output = $@;
-	$result = 'CRITICAL';
+	$output = $@ . "";
+	$result = CRITICAL;
 }
 
 Util::disconnect();
@@ -489,6 +493,8 @@ sub get_key_metrices {
 
 	my $perfCounterInfo = $perfmgr_view->perfCounter;
 	my @counters;
+
+	die "Insufficient rights to access perfcounters\n" if (!defined($perfCounterInfo));
 
 	foreach (@$perfCounterInfo) {
 		if ($_->groupInfo->key eq $group) {
@@ -512,37 +518,33 @@ sub generic_performance_values {
 	my $counter = 0;
 	my @values = ();
 	my $amount = @list;
-	eval
+	my $perfMgr = Vim::get_view(mo_ref => Vim::get_service_content()->perfManager, properties => [ 'perfCounter' ]);
+	my $metrices = get_key_metrices($perfMgr, $group, @list);
+
+	my @perf_query_spec = ();
+	push(@perf_query_spec, PerfQuerySpec->new(entity => $_, metricId => $metrices, format => 'csv', intervalId => 20, maxSample => 1)) foreach (@$views);
+	my $perf_data = $perfMgr->QueryPerf(querySpec => \@perf_query_spec);
+	$amount *= @$perf_data;
+
+	while (@$perf_data)
 	{
-		my $perfMgr = Vim::get_view(mo_ref => Vim::get_service_content()->perfManager, properties => [ 'perfCounter' ]);
-		my $metrices = get_key_metrices($perfMgr, $group, @list);
+		my $unsorted = shift(@$perf_data)->value;
+		my @host_values = ();
 
-		my @perf_query_spec = ();
-		push(@perf_query_spec, PerfQuerySpec->new(entity => $_, metricId => $metrices, format => 'csv', intervalId => 20, maxSample => 1)) foreach (@$views);
-		my $perf_data = $perfMgr->QueryPerf(querySpec => \@perf_query_spec);
-		$amount *= @$perf_data;
-
-		while (@$perf_data)
+		foreach my $id (@$unsorted)
 		{
-			my $unsorted = shift(@$perf_data)->value;
-			my @host_values = ();
-
-			foreach my $id (@$unsorted)
+			foreach my $index (0..@$metrices-1)
 			{
-				foreach my $index (0..@$metrices-1)
+				if ($id->id->counterId == $$metrices[$index]->counterId)
 				{
-					if ($id->id->counterId == $$metrices[$index]->counterId)
-					{
-						$counter++ if (!defined($host_values[$index]));
-						$host_values[$index] = $id;
-					}
+					$counter++ if (!defined($host_values[$index]));
+					$host_values[$index] = $id;
 				}
 			}
-			push(@values, \@host_values);
 		}
-		
-	};
-	return undef if ($@ || $counter != $amount);
+		push(@values, \@host_values);
+	}
+	return undef if ($counter != $amount || $counter == 0);
 	return \@values;
 }
 
@@ -668,7 +670,7 @@ sub host_cpu_info
 {
 	my ($host, $np, $subcommand) = @_;
 	 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'HOST CPU Unknown error';
 	
 	if (defined($subcommand))
@@ -697,7 +699,7 @@ sub host_cpu_info
 		}
 		else
 		{
-			$res = 'CRITICAL';
+			$res = CRITICAL;
 			$output = "HOST CPU - unknown subcommand\n" . $np->opts->_help;
 		}
 	}
@@ -710,7 +712,7 @@ sub host_cpu_info
 			my $value2 = simplify_number(convert_number($$values[0][1]->value) * 0.01);
 			$np->add_perfdata(label => "cpu_usagemhz", value => $value1, uom => 'Mhz', threshold => $np->threshold);
 			$np->add_perfdata(label => "cpu_usage", value => $value2, uom => '%', threshold => $np->threshold);
-			$res = 'OK';
+			$res = OK;
 			$output = "cpu usage=" . $value1 . " MHz (" . $value2 . "%)";
 		}
 	}
@@ -722,7 +724,7 @@ sub host_mem_info
 {
 	my ($host, $np, $subcommand) = @_;
 	 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'HOST MEM Unknown error';
 	
 	if (defined($subcommand))
@@ -795,7 +797,7 @@ sub host_mem_info
 		}
 		else
 		{
-			$res = 'CRITICAL';
+			$res = CRITICAL;
 			$output = "HOST MEM - unknown subcommand\n" . $np->opts->_help;
 		}
 	}
@@ -814,7 +816,7 @@ sub host_mem_info
 			$np->add_perfdata(label => "mem_overhead", value => $value3, uom => 'MB', threshold => $np->threshold);
 			$np->add_perfdata(label => "mem_swap", value => $value4, uom => 'MB', threshold => $np->threshold);
 			$np->add_perfdata(label => "mem_memctl", value => $value5, uom => 'MB', threshold => $np->threshold);
-			$res = 'OK';
+			$res = OK;
 			$output = "mem usage=" . $value1 . " MB (" . $value2 . "%), overhead=" . $value3 . " MB, swapped=" . $value4 . " MB, memctl=" . $value5 . " MB";
 		}
 	}
@@ -826,7 +828,7 @@ sub host_net_info
 {
 	my ($host, $np, $subcommand) = @_;
 	 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'HOST NET Unknown error';
 	
 	if (defined($subcommand))
@@ -874,7 +876,7 @@ sub host_net_info
 			die "Host \"" . $$host{"name"} . "\" has no network info in the API.\n" if (!defined($network_config));
 
 			$output = "";
-			$res = "OK";
+			$res = OK;
 			my $OKCount = 0;
 			my $BadCount = 0;
 
@@ -898,7 +900,7 @@ sub host_net_info
 						{
 							$output .= ", " if ($output);
 							$output .= "$nic_name is unplugged";
-							$res = "CRITICAL";
+							$res = CRITICAL;
 							$BadCount++;
 						}
 						else
@@ -922,7 +924,7 @@ sub host_net_info
 		}
 		else
 		{
-			$res = 'CRITICAL';
+			$res = CRITICAL;
 			$output = "HOST NET - unknown subcommand\n" . $np->opts->_help;
 		}
 	}
@@ -936,7 +938,7 @@ sub host_net_info
 			my $value2 = simplify_number(convert_number($$values[0][1]->value));
 			$np->add_perfdata(label => "net_receive", value => $value1, uom => 'KBps', threshold => $np->threshold);
 			$np->add_perfdata(label => "net_send", value => $value2, uom => 'KBps', threshold => $np->threshold);
-			$res = 'OK';
+			$res = OK;
 			$output = "net receive=" . $value1 . " KBps, send=" . $value2 . " KBps, ";
 		}
 
@@ -998,7 +1000,7 @@ sub host_disk_io_info
 {
 	my ($host, $np, $subcommand) = @_;
 	 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'HOST IO Unknown error';
 	
 	if (defined($subcommand))
@@ -1082,7 +1084,7 @@ sub host_disk_io_info
 		}
 		else
 		{
-			$res = 'CRITICAL';
+			$res = CRITICAL;
 			$output = "HOST IO - unknown subcommand\n" . $np->opts->_help;
 		}
 	}
@@ -1105,7 +1107,7 @@ sub host_disk_io_info
 			$np->add_perfdata(label => "io_kernel", value => $value5, uom => 'ms', threshold => $np->threshold);
 			$np->add_perfdata(label => "io_device", value => $value6, uom => 'ms', threshold => $np->threshold);
 			$np->add_perfdata(label => "io_queue", value => $value7, uom => 'ms', threshold => $np->threshold);
-			$res = 'OK';
+			$res = OK;
 			$output = "io commands aborted=" . $value1 . ", io bus resets=" . $value2 . ", io read latency=" . $value3 . " ms, write latency=" . $value4 . " ms, kernel latency=" . $value5 . " ms, device latency=" . $value6 . " ms, queue latency=" . $value7 ." ms";
 		}
 	}
@@ -1117,7 +1119,7 @@ sub host_list_vm_volumes_info
 {
 	my ($host, $np, $subcommand, $blacklist, $perc) = @_;
 	 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'HOST VM VOLUMES Unknown error';
 
 	if (defined($subcommand))
@@ -1126,6 +1128,7 @@ sub host_list_vm_volumes_info
 		my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'datastore']);
 		die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
 
+		die "Insufficient rights to access Datastores on the Host\n" if (!defined($host_view->datastore));
 		foreach my $ref_store (@{$host_view->datastore})
 		{
 			my $store = Vim::get_view(mo_ref => $ref_store, properties => ['summary', 'info']);
@@ -1133,7 +1136,7 @@ sub host_list_vm_volumes_info
 			{
 				if ($store->summary->accessible)
 				{
-					$res = 'OK';
+					$res = OK;
 					my $value1 = simplify_number(convert_number($store->summary->freeSpace) / 1024 / 1024);
 					my $value2 = simplify_number(convert_number($store->info->freeSpace) / convert_number($store->summary->capacity) * 100);
 					if ($perc)
@@ -1161,6 +1164,7 @@ sub host_list_vm_volumes_info
 		$output = '';
 		my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'datastore']);
 		die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
+		die "Insufficient rights to access Datastores on the Host\n" if (!defined($host_view->datastore));
 		foreach my $ref_store (@{$host_view->datastore})
 		{
 			my $store = Vim::get_view(mo_ref => $ref_store, properties => ['summary', 'info']);
@@ -1207,7 +1211,7 @@ sub host_runtime_info
 {
 	my ($host, $np, $subcommand, $blacklist) = @_;
 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'HOST RUNTIME Unknown error';
 	my $runtime;
 	my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'runtime', 'overallStatus', 'configIssue']);
@@ -1220,7 +1224,7 @@ sub host_runtime_info
 		if (uc($subcommand) eq "CON")
 		{
 			$output =  "connection state=" . $runtime->connectionState->val;
-			$res = 'OK' if (uc($runtime->connectionState->val) eq "CONNECTED");
+			$res = OK if (uc($runtime->connectionState->val) eq "CONNECTED");
 		}
 		elsif (uc($subcommand) eq "HEALTH")
 		{
@@ -1326,7 +1330,7 @@ sub host_runtime_info
 				else
 				{
 					$output = "All $OKCount health checks are Green";
-					$res = 'OK';
+					$res = OK;
 				}
 			}
 			else
@@ -1340,7 +1344,7 @@ sub host_runtime_info
 		{
 			my %host_maintenance_state = (0 => "no", 1 => "yes");
 			$output = "maintenance=" . $host_maintenance_state{$runtime->inMaintenanceMode};
-			$res = 'OK';
+			$res = OK;
 		}
 		elsif ((uc($subcommand) eq "LIST") || (uc($subcommand) eq "LISTVM"))
 		{
@@ -1359,7 +1363,7 @@ sub host_runtime_info
 
 			chop($output);
 			chop($output);
-			$res = 'OK';
+			$res = OK;
 			$output = $up .  "/" . @$vm_views . " VMs up: " . $output;
 			$np->add_perfdata(label => "vmcount", value => $up, uom => 'units', threshold => $np->threshold);
 			$res = $np->check_threshold(check => $up) if (defined($np->threshold));
@@ -1390,13 +1394,13 @@ sub host_runtime_info
 
 			if ($output eq '')
 			{
-				$res = 'OK';
+				$res = OK;
 				$output = 'No config issues';
 			}
 		}
 		else
 		{
-			$res = 'CRITICAL';
+			$res = CRITICAL;
 			$output = "HOST RUNTIME - unknown subcommand\n" . $np->opts->_help;
 		}
 	}
@@ -1467,7 +1471,7 @@ sub host_runtime_info
 			}
 		}
 
-		$res = 'OK';
+		$res = OK;
 		$output .= ", overall status=" . $host_view->overallStatus->val . ", connection state=" . $runtime->connectionState->val . ", maintenance=" . $host_maintenance_state{$runtime->inMaintenanceMode} . ", ";
 
 		if ($AlertCount)
@@ -1497,7 +1501,7 @@ sub host_service_info
 {
 	my ($host, $np, $subcommand) = @_;
 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'HOST RUNTIME Unknown error';
 	my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'configManager']);
 	die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
@@ -1522,12 +1526,12 @@ sub host_service_info
 
 		if ($subcommand ne '')
 		{
-			$res = 'UNKNOWN';
+			$res = UNKNOWN;
 			$output = "unknown services : $subcommand";
 		}
 		elsif ($output eq '')
 		{
-			$res = 'OK';
+			$res = OK;
 			$output = "All services are in their apropriate state.";
 		}
 		else
@@ -1540,7 +1544,7 @@ sub host_service_info
 	else
 	{
 		my %service_state = (0 => "down", 1 => "up");
-		$res = 'OK';
+		$res = OK;
 		$output = "services : ";
 		$output .= $_->key . " (" . $service_state{$_->running} . "), " foreach (@$services);	
 		chop($output);
@@ -1552,150 +1556,139 @@ sub host_service_info
 
 sub host_storage_info
 {
-	my ($host, $np, $subcommand) = @_;
+	my ($host, $np, $subcommand, $blacklist) = @_;
 
 	my $count = 0;
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'HOST RUNTIME Unknown error';
 	my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'configManager']);
 	die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
 
-	my $storage = Vim::get_view(mo_ref => $host_view->configManager->storageSystem, properties => ['storageDeviceInfo', 'multipathStateInfo']);
+	my $storage = Vim::get_view(mo_ref => $host_view->configManager->storageSystem, properties => ['storageDeviceInfo']);
 
 	if (defined($subcommand))
 	{
-		my $state = OK;
 		if (uc($subcommand) eq "ADAPTER")
 		{
 			$output = "";
 			$res = OK;
 			foreach my $dev (@{$storage->storageDeviceInfo->hostBusAdapter})
 			{
-				my $status = UNKNOWN; # For unkonwn or other statuses
-				if (uc($dev->status) eq "ONLINE")
+				my $name = $dev->device;
+				if (defined($blacklist))
 				{
-					$status = OK;
-					$count++;
+					next if ($blacklist =~ m/(^|\?)\Q$name\E($|\?)/);
 				}
-				elsif (uc($dev->status) eq "OFFLINE")
-				{
-					$status = WARNING;
-				}
-				elsif (uc($dev->status) eq "FAULT")
-				{
-					$status = CRITICAL;
-				}
-				else
-				{
-					$res = UNKNOWN;
-				}
-				$state = Nagios::Plugin::Functions::max_state($state, $status);
-				$output .= $dev->device . " (" . $dev->status . "); ";
+				$count ++ if (uc($dev->status) eq "ONLINE");
+				$res = UNKNOWN if (uc($dev->status) eq "UNKNOWN");
+				$output .= $name . " (" . $dev->status . "); ";
 			}
-			$np->add_perfdata(label => "adapters", value => $count, uom => 'units', threshold => $np->threshold);
+			my $state = $np->check_threshold(check => $count);
 			$res = $state if ($state != OK);
+			$np->add_perfdata(label => "adapters", value => $count, uom => 'units', threshold => $np->threshold);
 		}
 		elsif (uc($subcommand) eq "LUN")
 		{
 			$output = "";
 			$res = OK;
+			my $state = OK; # For unkonwn or other statuses
 			foreach my $scsi (@{$storage->storageDeviceInfo->scsiLun})
 			{
-				my $status = UNKNOWN; # For unkonwn or other statuses
+				my $name = "";
 				if (exists($scsi->{displayName}))
 				{
-					$output .= $scsi->displayName;
+					$name = $scsi->displayName;
 				}
 				elsif (exists($scsi->{canonicalName}))
 				{
-					$output .= $scsi->canonicalName;
+					$name = $scsi->canonicalName;
 				}
 				else
 				{
-					$output .= $scsi->deviceName;
+					$name = $scsi->deviceName;
 				}
 
+				if (defined($blacklist))
+				{
+					next if ($blacklist =~ m/(^|\?)\Q$name\E($|\?)/);
+				}
+
+				$state = OK;
 				foreach (@{$scsi->operationalState})
 				{
 					if (uc($_) eq "OK")
 					{
-						$status = OK;
-						$count++;
+						# $state = OK;
 					}
-					elsif (uc($_) eq "ERROR")
+					elsif (uc($_) eq "UNKNOWN")
 					{
-						$status = CRITICAL;
+						$res = UNKNOWN;
 					}
 					elsif (uc($_) eq "UNKNOWNSTATE")
 					{
-						$status = UNKNOWN;
-					}
-					elsif (uc($_) eq "OFF")
-					{
-						$status = CRITICAL;
-					}
-					elsif (uc($_) eq "QUIESCED")
-					{
-						$status = WARNING;
-					}
-					elsif (uc($_) eq "DEGRADED")
-					{
-						$status = WARNING;
-					}
-					elsif (uc($_) eq "LOSTCOMMUNICATION")
-					{
-						$status = CRITICAL;
+						$res = UNKNOWN;
 					}
 					else
 					{
-						$res = UNKNOWN;
-						$status = UNKNOWN;
+						$state = CRITICAL;
 					}
-					$state = Nagios::Plugin::Functions::max_state($state, $status);
 				}
 
-				$output .= " <" . join("-", @{$scsi->operationalState}) . ">; ";
+				$count++ if ($state == OK);
+				$output .= $name . " <" . join("-", @{$scsi->operationalState}) . ">; ";
 			}
 			$np->add_perfdata(label => "LUNs", value => $count, uom => 'units', threshold => $np->threshold);
+			$state = $np->check_threshold(check => $count);
 			$res = $state if ($state != OK);
 		}
 		elsif (uc($subcommand) eq "PATH")
 		{
-			$output = "";
-			$res = OK;
-			foreach my $path (@{$storage->multipathStateInfo->path})
+			if (exists($storage->storageDeviceInfo->{multipathInfo}))
 			{
-				my $status = UNKNOWN; # For unkonwn or other statuses
-				if (uc($path->pathState) eq "ACTIVE")
+				$output = "";
+				$res = OK;
+				foreach my $lun (@{$storage->storageDeviceInfo->multipathInfo->lun})
 				{
-					$status = OK;
-					$count++;
+					foreach my $path (@{$lun->path})
+					{
+						my $status = UNKNOWN; # For unkonwn or other statuses
+						my $pathState = "unknown";
+						my $name = $path->name;
+						if (defined($blacklist))
+						{
+							next if ($blacklist =~ m/(^|\?)\Q$name\E($|\?)/);
+						}
+
+						if (exists($path->{state}))
+						{
+							$pathState = $path->state;
+						}
+						else
+						{
+							$pathState = $path->pathState;
+						}
+
+						if (uc($pathState) eq "ACTIVE")
+						{
+							$count++;
+						}
+						$res = UNKNOWN if (uc($pathState) eq "UNKNOWN");
+						$output .= $name . " <" . $path->pathState . ">; ";
+					}
 				}
-				elsif (uc($path->pathState) eq "DISABLED")
-				{
-					$status = WARNING;
-				}
-				elsif (uc($path->pathState) eq "STANDBY")
-				{
-					$status = WARNING;
-				}
-				elsif (uc($path->pathState) eq "DEAD")
-				{
-					$status = CRITICAL;
-				}
-				else
-				{
-					$res = UNKNOWN;
-				}
-				$state = Nagios::Plugin::Functions::max_state($state, $status);
-				$output .= $path->name . " <" . $path->pathState . ">; ";
+				$np->add_perfdata(label => "paths", value => $count, uom => 'units', threshold => $np->threshold);
+				my $state = $np->check_threshold(check => $count);
+				$res = $state if ($state != OK);
 			}
-			$res = $state if ($state != OK);
-			$np->add_perfdata(label => "paths", value => $count, uom => 'units', threshold => $np->threshold);
+			else
+			{
+				$output = "path info is unavailable on this host";
+				$res = UNKNOWN;
+			}
 		}
 		else
 		{
-			$res = 'CRITICAL';
+			$res = CRITICAL;
 			$output = "HOST STORAGE - unknown subcommand\n" . $np->opts->_help;
 		}
 	}
@@ -1715,7 +1708,7 @@ sub host_storage_info
 			}
 			elsif (uc($dev->status) eq "OFFLINE")
 			{
-				$status = WARNING;
+				$status = CRITICAL;
 			}
 			elsif (uc($dev->status) eq "FAULT")
 			{
@@ -1776,36 +1769,59 @@ sub host_storage_info
 		$np->add_perfdata(label => "LUNs", value => $count, uom => 'units', threshold => $np->threshold);
 		$output .= $count . "/" . @{$storage->storageDeviceInfo->scsiLun} . " LUNs ok, ";
 
-		$count = 0;
-		foreach my $path (@{$storage->multipathStateInfo->path})
+		if (exists($storage->storageDeviceInfo->{multipathInfo}))
 		{
-			$status = UNKNOWN;
-			if (uc($path->pathState) eq "ACTIVE")
+			$count = 0;
+			my $amount = 0;
+			foreach my $lun (@{$storage->storageDeviceInfo->multipathInfo->lun})
 			{
-				$status = OK;
-				$count++;
+				foreach my $path (@{$lun->path})
+				{
+					my $status = UNKNOWN; # For unkonwn or other statuses
+					my $pathState = "unknown";
+					if (exists($path->{state}))
+					{
+						$pathState = $path->state;
+					}
+					else
+					{
+						$pathState = $path->pathState;
+					}
+
+					$status = UNKNOWN;
+					if (uc($pathState) eq "ACTIVE")
+					{
+						$status = OK;
+						$count++;
+					}
+					elsif (uc($pathState) eq "DISABLED")
+					{
+						$status = WARNING;
+					}
+					elsif (uc($pathState) eq "STANDBY")
+					{
+						$status = WARNING;
+					}
+					elsif (uc($pathState) eq "DEAD")
+					{
+						$status = CRITICAL;
+					}
+					else
+					{
+						$res = UNKNOWN;
+						$status = UNKNOWN;
+					}
+					$state = Nagios::Plugin::Functions::max_state($state, $status);
+					$amount++;
+				}
 			}
-			elsif (uc($path->pathState) eq "DISABLED")
-			{
-				$status = WARNING;
-			}
-			elsif (uc($path->pathState) eq "STANDBY")
-			{
-				$status = WARNING;
-			}
-			elsif (uc($path->pathState) eq "DEAD")
-			{
-				$status = CRITICAL;
-			}
-			else
-			{
-				$res = UNKNOWN;
-				$status = UNKNOWN;
-			}
-			$state = Nagios::Plugin::Functions::max_state($state, $status);
+			$np->add_perfdata(label => "paths", value => $count, uom => 'units', threshold => $np->threshold);
+			$output .= $count . "/" . $amount . " paths active";
 		}
-		$np->add_perfdata(label => "paths", value => $count, uom => 'units', threshold => $np->threshold);
-		$output .= $count . "/" . @{$storage->multipathStateInfo->path} . " Paths Active";
+		else
+		{
+			$output .= "no path info";
+		}
 
 		$res = $state if ($state != OK);
 	}
@@ -1818,7 +1834,7 @@ sub vm_cpu_info
 {
 	my ($vmname, $np, $subcommand) = @_;
 	 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'HOST-VM CPU Unknown error';
 	
 	if (defined($subcommand))
@@ -1858,7 +1874,7 @@ sub vm_cpu_info
 		}
 		else
 		{
-			$res = 'CRITICAL';
+			$res = CRITICAL;
 			$output = "HOST-VM CPU - unknown subcommand\n" . $np->opts->_help;
 		}
 	}
@@ -1873,7 +1889,7 @@ sub vm_cpu_info
 			$np->add_perfdata(label => "cpu_usagemhz", value => $value1, uom => 'Mhz', threshold => $np->threshold);
 			$np->add_perfdata(label => "cpu_usage", value => $value2, uom => '%', threshold => $np->threshold);
 			$np->add_perfdata(label => "cpu_wait", value => $value3, uom => 'ms', threshold => $np->threshold);
-			$res = 'OK';
+			$res = OK;
 			$output = "\"$vmname\" cpu usage=" . $value1 . " MHz(" . $value2 . "%) wait=" . $value3 . " ms";
 		}
 	}
@@ -1885,7 +1901,7 @@ sub vm_mem_info
 {
 	my ($vmname, $np, $subcommand) = @_;
 	 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'HOST-VM MEM Unknown error';
 	
 	if (defined($subcommand))
@@ -1991,7 +2007,7 @@ sub vm_mem_info
 		}
 		else
 		{
-			$res = 'CRITICAL';
+			$res = CRITICAL;
 			$output = "HOST-VM MEM - unknown subcommand\n" . $np->opts->_help;
 		}
 	}
@@ -2016,7 +2032,7 @@ sub vm_mem_info
 			$np->add_perfdata(label => "mem_swapin", value => $value6, uom => 'MB', threshold => $np->threshold);
 			$np->add_perfdata(label => "mem_swapout", value => $value7, uom => 'MB', threshold => $np->threshold);
 			$np->add_perfdata(label => "mem_memctl", value => $value8, uom => 'MB', threshold => $np->threshold);
-			$res = 'OK';
+			$res = OK;
 			$output =  "\"$vmname\" mem usage=" . $value1 . " MB(" . $value2 . "%), overhead=" . $value3 . " MB, active=" . $value4 . " MB, swapped=" . $value5 . " MB, swapin=" . $value6 . " MB, swapout=" . $value7 . " MB, memctl=" . $value8 . " MB";
 		}
 	}
@@ -2028,7 +2044,7 @@ sub vm_net_info
 {
 	my ($vmname, $np, $subcommand) = @_;
 	 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'HOST-VM NET Unknown error';
 	
 	if (defined($subcommand))
@@ -2068,7 +2084,7 @@ sub vm_net_info
 		}
 		else
 		{
-			$res = 'CRITICAL';
+			$res = CRITICAL;
 			$output = "HOST-VM NET - unknown subcommand\n" . $np->opts->_help;
 		}
 	}
@@ -2081,7 +2097,7 @@ sub vm_net_info
 			my $value2 = simplify_number(convert_number($$values[0][1]->value));
 			$np->add_perfdata(label => "net_receive", value => $value1, uom => 'KBps', threshold => $np->threshold);
 			$np->add_perfdata(label => "net_send", value => $value2, uom => 'KBps', threshold => $np->threshold);
-			$res = 'OK';
+			$res = OK;
 			$output = "\"$vmname\" net receive=" . $value1 . " KBps, send=" . $value2 . " KBps";
 		}
 	}
@@ -2093,7 +2109,7 @@ sub vm_disk_io_info
 {
 	my ($vmname, $np, $subcommand) = @_;
 	 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'HOST-VM IO Unknown error';
 	
 	if (defined($subcommand))
@@ -2133,7 +2149,7 @@ sub vm_disk_io_info
 		}
 		else
 		{
-			$res = 'CRITICAL';
+			$res = CRITICAL;
 			$output = "HOST IO - unknown subcommand\n" . $np->opts->_help;
 		}
 	}
@@ -2148,7 +2164,7 @@ sub vm_disk_io_info
 			$np->add_perfdata(label => "io_usage", value => $value1, uom => 'MB', threshold => $np->threshold);
 			$np->add_perfdata(label => "io_read", value => $value2, uom => 'MB/s', threshold => $np->threshold);
 			$np->add_perfdata(label => "io_write", value => $value3, uom => 'MB/s', threshold => $np->threshold);
-			$res = 'OK';
+			$res = OK;
 			$output = "\"$vmname\" io usage=" . $value1 . " MB, read=" . $value2 . " MB/s, write=" . $value3 . " MB/s";
 		}
 	}
@@ -2160,7 +2176,7 @@ sub vm_runtime_info
 {
 	my ($vmname, $np, $subcommand) = @_;
 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'HOST-VM RUNTIME Unknown error';
 	my $runtime;
 	my $vm_view = Vim::find_entity_view(view_type => 'VirtualMachine', filter => {name => $vmname}, properties => ['name', 'runtime', 'overallStatus', 'guest', 'configIssue']);
@@ -2172,23 +2188,23 @@ sub vm_runtime_info
 		if (uc($subcommand) eq "CON")
 		{
 			$output = "\"$vmname\" connection state=" . $runtime->connectionState->val;
-			$res = 'OK' if ($runtime->connectionState->val eq "connected");
+			$res = OK if ($runtime->connectionState->val eq "connected");
 		}
 		elsif (uc($subcommand) eq "CPU")
 		{
 			$output = "\"$vmname\" max cpu=" . $runtime->maxCpuUsage . " MHz";
-			$res = 'OK';
+			$res = OK;
 		}
 		elsif (uc($subcommand) eq "MEM")
 		{
 			$output = "\"$vmname\" max mem=" . $runtime->maxMemoryUsage . " MB";
-			$res = 'OK';
+			$res = OK;
 		}
 		elsif (uc($subcommand) eq "STATE")
 		{
 			my %vm_state_strings = ("poweredOn" => "UP", "poweredOff" => "DOWN", "suspended" => "SUSPENDED");
 			$output = "\"$vmname\" run state=" . $vm_state_strings{$runtime->powerState->val};
-			$res = 'OK' if ($runtime->powerState->val eq "poweredOn");
+			$res = OK if ($runtime->powerState->val eq "poweredOn");
 		}
 		elsif (uc($subcommand) eq "STATUS")
 		{
@@ -2205,13 +2221,13 @@ sub vm_runtime_info
 		{
 			my %vm_guest_state = ("running" => "Running", "notRunning" => "Not running", "shuttingDown" => "Shutting down", "resetting" => "Resetting", "standby" => "Standby", "unknown" => "Unknown");
 			$output = "\"$vmname\" guest state=" . $vm_guest_state{$vm_view->guest->guestState};
-			$res = 'OK' if ($vm_view->guest->guestState eq "running");
+			$res = OK if ($vm_view->guest->guestState eq "running");
 		}
 		elsif (uc($subcommand) eq "TOOLS")
 		{
 			my %vm_tools_status = ("toolsNotInstalled" => "Not installed", "toolsNotRunning" => "Not running", "toolsOk" => "OK", "toolsOld" => "Old");
 			$output = "\"$vmname\" tools status=" . $vm_tools_status{$vm_view->guest->toolsStatus->val};
-			$res = 'OK' if ($vm_view->guest->toolsStatus->val eq "toolsOk");
+			$res = OK if ($vm_view->guest->toolsStatus->val eq "toolsOk");
 		}
 		elsif (uc($subcommand) eq "ISSUES")
 		{
@@ -2227,13 +2243,13 @@ sub vm_runtime_info
 			}
 			else
 			{
-				$res = 'OK';
+				$res = OK;
 				$output = "\"$vmname\" has no config issues";
 			}
 		}
 		else
 		{
-			$res = 'CRITICAL';
+			$res = CRITICAL;
 			$output = "HOST-VM RUNTIME - unknown subcommand\n" . $np->opts->_help;
 		}
 	}
@@ -2242,7 +2258,7 @@ sub vm_runtime_info
 		my %vm_state_strings = ("poweredOn" => "UP", "poweredOff" => "DOWN", "suspended" => "SUSPENDED");
 		my %vm_tools_status = ("toolsNotInstalled" => "Not installed", "toolsNotRunning" => "Not running", "toolsOk" => "OK", "toolsOld" => "Old");
 		my %vm_guest_state = ("running" => "Running", "notRunning" => "Not running", "shuttingDown" => "Shutting down", "resetting" => "Resetting", "standby" => "Standby", "unknown" => "Unknown");
-		$res = 'OK';
+		$res = OK;
 		$output = "\"$vmname\" status=" . $vm_view->overallStatus->val . ", run state=" . $vm_state_strings{$runtime->powerState->val} . ", guest state=" . $vm_guest_state{$vm_view->guest->guestState} . ", max cpu=" . $runtime->maxCpuUsage . " MHz, max mem=" . $runtime->maxMemoryUsage . " MB, console connections=" . $runtime->numMksConnections . ", tools status=" . $vm_tools_status{$vm_view->guest->toolsStatus->val} . ", ";
 		my $issues = $vm_view->configIssue;
 		if (defined($issues))
@@ -2262,7 +2278,7 @@ sub vm_runtime_info
 
 sub return_cluster_DRS_recommendations {
 	my ($np, $cluster_name) = @_;
-	my $res = 'OK';
+	my $res = OK;
 	my $output;
 	my @clusters;
 
@@ -2311,7 +2327,7 @@ sub dc_cpu_info
 {
 	my ($np, $subcommand) = @_;
 	 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'DC CPU Unknown error';
 	
 	if (defined($subcommand))
@@ -2344,7 +2360,7 @@ sub dc_cpu_info
 		}
 		else
 		{
-			$res = 'CRITICAL';
+			$res = CRITICAL;
 			$output = "DC CPU - unknown subcommand\n" . $np->opts->_help;
 		}
 	}
@@ -2361,7 +2377,7 @@ sub dc_cpu_info
 			$value2 = simplify_number($value2 / @$values);
 			$np->add_perfdata(label => "cpu_usagemhz", value => $value1, uom => 'Mhz', threshold => $np->threshold);
 			$np->add_perfdata(label => "cpu_usage", value => $value2, uom => '%', threshold => $np->threshold);
-			$res = 'OK';
+			$res = OK;
 			$output = "cpu usage=" . $value1 . " MHz (" . $value2 . "%)";
 		}
 	}
@@ -2373,7 +2389,7 @@ sub dc_mem_info
 {
 	my ($np, $subcommand) = @_;
 	 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'DC MEM Unknown error';
 	
 	if (defined($subcommand))
@@ -2458,7 +2474,7 @@ sub dc_mem_info
 		}
 		else
 		{
-			$res = 'CRITICAL';
+			$res = CRITICAL;
 			$output = "DC MEM - unknown subcommand\n" . $np->opts->_help;
 		}
 	}
@@ -2487,7 +2503,7 @@ sub dc_mem_info
 			$np->add_perfdata(label => "mem_overhead", value => $value3, uom => 'MB', threshold => $np->threshold);
 			$np->add_perfdata(label => "mem_swap", value => $value4, uom => 'MB', threshold => $np->threshold);
 			$np->add_perfdata(label => "mem_memctl", value => $value5, uom => 'MB', threshold => $np->threshold);
-			$res = 'OK';
+			$res = OK;
 			$output = "mem usage=" . $value1 . " MB (" . $value2 . "%), overhead=" . $value3 . " MB, swapped=" . $value4 . " MB, memctl=" . $value5 . " MB";
 		}
 	}
@@ -2499,7 +2515,7 @@ sub dc_net_info
 {
 	my ($np, $subcommand) = @_;
 	 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'DC NET Unknown error';
 	
 	if (defined($subcommand))
@@ -2545,7 +2561,7 @@ sub dc_net_info
 		}
 		else
 		{
-			$res = 'CRITICAL';
+			$res = CRITICAL;
 			$output = "DC NET - unknown subcommand\n" . $np->opts->_help;
 		}
 	}
@@ -2562,7 +2578,7 @@ sub dc_net_info
 			$value2 = simplify_number($value2);
 			$np->add_perfdata(label => "net_receive", value => $value1, uom => 'KBps', threshold => $np->threshold);
 			$np->add_perfdata(label => "net_send", value => $value2, uom => 'KBps', threshold => $np->threshold);
-			$res = 'OK';
+			$res = OK;
 			$output = "net receive=" . $value1 . " KBps, send=" . $value2 . " KBps";
 		}
 	}
@@ -2574,7 +2590,7 @@ sub dc_list_vm_volumes_info
 {
 	my ($np, $subcommand, $blacklist, $perc) = @_;
 	
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'DC VM VOLUMES Unknown error';
 
 	if (defined($subcommand))
@@ -2585,6 +2601,7 @@ sub dc_list_vm_volumes_info
 		die "Datacenter does not contain any hosts\n" if (!@$host_views);
 
 		HOSTITER: foreach my $host (@$host_views) {
+			die "Insufficient rights to access Datastores on the DC\n" if (!defined($host->datastore));
 			foreach my $ref_store (@{$host->datastore})
 			{
 				my $store = Vim::get_view(mo_ref => $ref_store, properties => ['summary', 'info']);
@@ -2592,7 +2609,7 @@ sub dc_list_vm_volumes_info
 				{
 					if ($store->summary->accessible)
 					{
-						$res = 'OK';
+						$res = OK;
 						my $value1 = simplify_number(convert_number($store->summary->freeSpace) / 1024 / 1024);
 						my $value2 = simplify_number(convert_number($store->info->freeSpace) / convert_number($store->summary->capacity) * 100);
 						if ($perc)
@@ -2625,6 +2642,7 @@ sub dc_list_vm_volumes_info
 		die "Datacenter does not contain any hosts\n" if (!@$host_views);
 
 		foreach my $host (@$host_views) {
+			die "Insufficient rights to access Datastores on the DC\n" if (!defined($host->datastore));
 			foreach my $ref_store (@{$host->datastore})
 			{
 				my $store = Vim::get_view(mo_ref => $ref_store, properties => ['summary', 'info']);
@@ -2671,7 +2689,7 @@ sub dc_disk_io_info
 {
 	my ($np, $subcommand) = @_;
 	 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'DC IO Unknown error';
 	
 	if (defined($subcommand))
@@ -2769,7 +2787,7 @@ sub dc_disk_io_info
 		}
 		else
 		{
-			$res = 'CRITICAL';
+			$res = CRITICAL;
 			$output = "DC IO - unknown subcommand\n" . $np->opts->_help;
 		}
 	}
@@ -2806,7 +2824,7 @@ sub dc_disk_io_info
 			$np->add_perfdata(label => "io_kernel", value => $value5, uom => 'ms', threshold => $np->threshold);
 			$np->add_perfdata(label => "io_device", value => $value6, uom => 'ms', threshold => $np->threshold);
 			$np->add_perfdata(label => "io_queue", value => $value7, uom => 'ms', threshold => $np->threshold);
-			$res = 'OK';
+			$res = OK;
 			$output = "io commands aborted=" . $value1 . ", io bus resets=" . $value2 . ", io read latency=" . $value3 . " ms, write latency=" . $value4 . " ms, kernel latency=" . $value5 . " ms, device latency=" . $value6 . " ms, queue latency=" . $value7 ." ms";
 		}
 	}
@@ -2818,7 +2836,7 @@ sub dc_runtime_info
 {
 	my ($np, $subcommand, $blacklist) = @_;
 
-	my $res = 'CRITICAL';
+	my $res = CRITICAL;
 	my $output = 'DC RUNTIME Unknown error';
 	my $runtime;
 	my $dc_view = Vim::find_entity_view(view_type => 'Datacenter', properties => ['name', 'overallStatus', 'configIssue']);
@@ -2844,7 +2862,7 @@ sub dc_runtime_info
 
 			chop($output);
 			chop($output);
-			$res = 'OK';
+			$res = OK;
 			$output = $up .  "/" . @$vm_views . " VMs up: " . $output;
 			$np->add_perfdata(label => "vmcount", value => $up, uom => 'units', threshold => $np->threshold);
 			$res = $np->check_threshold(check => $up) if (defined($np->threshold));
@@ -2869,17 +2887,25 @@ sub dc_runtime_info
 
 			chop($output);
 			chop($output);
-			$res = 'OK';
+			$res = OK;
 			$output = $up .  "/" . @$host_views . " Hosts up: " . $output;
 			$np->add_perfdata(label => "hostcount", value => $up, uom => 'units', threshold => $np->threshold);
 			$res = $np->check_threshold(check => $up) if (defined($np->threshold));
-			$res = 'UNKNOWN' if ($res == OK && $unknown);
+			$res = UNKNOWN if ($res == OK && $unknown);
 		}
 		elsif (uc($subcommand) eq "STATUS")
 		{
-			my $status = $dc_view->overallStatus->val;
-			$output =  "overall status=" . $status;
-			$res = check_health_state($status);
+			if (defined($dc_view->overallStatus))
+			{
+				my $status = $dc_view->overallStatus->val;
+				$output =  "overall status=" . $status;
+				$res = check_health_state($status);
+			}
+			else
+			{
+				$output = "Insufficient rights to access status info on the DC\n";
+				$res = WARNING;
+			}
 		}
 		elsif (uc($subcommand) eq "ISSUES")
 		{
@@ -2901,13 +2927,13 @@ sub dc_runtime_info
 
 			if ($output eq '')
 			{
-				$res = 'OK';
+				$res = OK;
 				$output = 'No config issues';
 			}
 		}
 		else
 		{
-			$res = 'CRITICAL';
+			$res = CRITICAL;
 			$output = "HOST RUNTIME - unknown subcommand\n" . $np->opts->_help;
 		}
 	}
@@ -2925,15 +2951,15 @@ sub dc_runtime_info
 				$up += $vm->get_property('runtime.powerState')->val eq "poweredOn";
 			}
 			$np->add_perfdata(label => "vmcount", value => $up, uom => 'units', threshold => $np->threshold);
-			$output = $up . "/" . @$vm_views . " VMs up";
+			$output = $up . "/" . @$vm_views . " VMs up, ";
 		}
 		else
 		{
-			$output = "No VMs installed";
+			$output = "No VMs installed, ";
 		}
 
-		$res = 'OK';
-		$output .= ", overall status=" . $dc_view->overallStatus->val . ", ";
+		$res = OK;
+		$output .= "overall status=" . $dc_view->overallStatus->val . ", " if (defined($dc_view->overallStatus));
 		my $issues = $dc_view->configIssue;
 		if (defined($issues))
 		{

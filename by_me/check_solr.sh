@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================== Summary =======================================
 # Program : check_solr.sh
-# Version : 2010.7.29
+# Version : 2010.10.12
 # Date    : July 13 2010
 # Author  : Alex Simenduev - (http://www.planetit.ws)
 # Summary : This is a nagios plugin that checks Apache Solr host
@@ -13,23 +13,26 @@
 # Notice: The plugin requires 'curl' and 'xmlstarlet' utilities in order to work
 # ================================ Change log ==================================
 # Legend:
-#               [*] Informational, [!] Bugix, [+] Added, [-] Removed
+#                [*] Informational, [!] Bugix, [+] Added, [-] Removed
+#
+# Ver 2010.10.12:
+#                [*] Replication check was improved a bit to avoid false alarms
 #
 # Ver 2010.7.29:
-#               [*] Reduced number of http(s) requests when checking replication
+#                [*] Reduced number of http(s) requests in replication check
 #
 # Ver 2010.7.14:
-#               [*] Speed improvement in 'numdocs' metric
+#                [*] Speed improvement in 'numdocs' metric
 #
 # Ver 2010.7.13:
-#               [*] Initial implementation.
+#                [*] Initial implementation.
 #
 # ========================== START OF PROGRAM CODE =============================
 # Disable STDERR output, comment it while debugging
 exec 2> /dev/null
 
 SCRIPT_NAME=`basename $0`
-SCRIPT_VERSION="2010.7.14"
+SCRIPT_VERSION="2010.10.11"
 
 # Nagios return codes
 STATE_OK=0
@@ -174,7 +177,8 @@ solr_core_replication() {
         return $STATE_UNKNOWN
     }
 
-    local MASTER_URL MASTER_INDEXVER SLAVE_DETAILS SLAVE_INDEXVER SLAVE_LASTREPLICATED
+    local MASTER_URL MASTER_INDEXVER
+    local SLAVE_DETAILS SLAVE_INDEXVER SLAVE_REPLICATING SLAVE_LASTREPLICATED
 
     # Get slave replication details
     SLAVE_DETAILS=$(exec_curl ${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/$1/replication?command=details)
@@ -198,6 +202,11 @@ solr_core_replication() {
 
     # Check if indexes match each other
     if [ $MASTER_INDEXVER -ne $SLAVE_INDEXVER ]; then
+        # Check if slave currently replicating
+        SLAVE_REPLICATING=$(echo $SLAVE_DETAILS |
+            xmlstarlet sel -t -v "/response/lst[@name='details']/lst[@name='slave']/str[@name='isReplicating']")
+
+        # Get last replicated date
         SLAVE_LASTREPLICATED=$(echo $SLAVE_DETAILS |
             xmlstarlet sel -t -v "/response/lst[@name='details']/lst[@name='slave']/str[@name='indexReplicatedAt']")
 
@@ -205,12 +214,11 @@ solr_core_replication() {
     	SLAVE_LASTREPLICATED=$(date -d "$SLAVE_LASTREPLICATED" +%s)
     	SLAVE_LASTREPLICATED=$(date -d "now - $SLAVE_LASTREPLICATED seconds" +%s)
 
-      	if [ $SLAVE_LASTREPLICATED -gt $SOLR_MAX_SECONDS_BEHIND_MASTER ]; then
+        # Return CRITICAL if slave isn't currently replicating
+        # and it's behind master for more then 1 hour (configurable)
+      	if [ "$SLAVE_REPLICATING" == "false" -a $SLAVE_LASTREPLICATED -gt $SOLR_MAX_SECONDS_BEHIND_MASTER ]; then
       	    echo "${SLAVE_LASTREPLICATED} seconds behind master => CRITICAL"
       	    return $STATE_CRITICAL
-        else
-      	    echo "index version not match => WARNING"
-      	    return $STATE_WARNING
         fi
     fi
 
