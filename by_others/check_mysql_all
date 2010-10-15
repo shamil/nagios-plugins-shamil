@@ -7,6 +7,7 @@
 # check_mysql_all - Nagios Plug-In for typical MySQL checks. 4.0+
 #
 # Modified version (0.0.9b). Added support for queries/slow-queries per second.
+# Modified version (0.0.9c). Changed slow queries check to be per interval.
 # Modified by: Alex Simenduev (http://www.planetit.ws), on 19/07/2010
 #
 # @author  Ryan Lowe <ryan.a.lowe@percona.com>
@@ -28,7 +29,7 @@ use lib qw(
 );
 use utils qw(%ERRORS);
 
-my $VERSION     = '0.0.9b';
+my $VERSION     = '0.0.9c';
 my $SCRIPT_NAME = basename(__FILE__);
 my @CHECKS      = qw(connect repl_io repl_sql repl_sbm repl_all mysql_query connections queries slow_queries table_status myisam_frag);
 my @REPL_CHECKS = qw(repl_io repl_sql repl_sbm repl_all);
@@ -62,15 +63,15 @@ if (!$gop->getoptions(
     pod2usage(2);
 }
 
-# Help if asked for or no check given
-pod2usage(2) if     ($OPTIONS{'help'});
-pod2usage(2) unless ($OPTIONS{'check'});
-
 # Yay for versions
 if ($OPTIONS{'version'}) {
     print "$VERSION\n";
     exit $ERRORS{'OK'};
 }
+
+# Help if asked for or no check given
+pod2usage(2) if     ($OPTIONS{'help'});
+pod2usage(2) unless ($OPTIONS{'check'});
 
 # Verify valid check
 if (grep {/^$OPTIONS{'check'}$/} @CHECKS) {
@@ -101,16 +102,14 @@ validate_input(\%OPTIONS, 'host', 'hostname');
 validate_input(\%OPTIONS, 'port', 'port');
 
 # Attempt db connection
-my $connection_string  = 'DBI:mysql:';
-$connection_string    .= "mysql_read_default_file=$OPTIONS{'cnf'};" if $OPTIONS{'cnf'};
-$connection_string    .= "mysql_read_default_group=client;" if $OPTIONS{'cnf'};
-$connection_string    .= "host=$OPTIONS{'host'};";
-$connection_string    .= "database=$OPTIONS{'database'};"
-    if $OPTIONS{'database'};
-$connection_string    .= "mysql_socket=$OPTIONS{'socket'};"
-    if $OPTIONS{'socket'} and $OPTIONS{'host'} eq 'localhost';
-$connection_string    .= "port=$OPTIONS{'port'};";
-$connection_string    .= "mysql_multi_statements=1";
+my $connection_string = 'DBI:mysql:';
+$connection_string   .= "mysql_read_default_file=$OPTIONS{'cnf'};" if $OPTIONS{'cnf'};
+$connection_string   .= "mysql_read_default_group=client;" if $OPTIONS{'cnf'};
+$connection_string   .= "host=$OPTIONS{'host'};";
+$connection_string   .= "database=$OPTIONS{'database'};" if $OPTIONS{'database'};
+$connection_string   .= "mysql_socket=$OPTIONS{'socket'};" if $OPTIONS{'socket'} and $OPTIONS{'host'} eq 'localhost';
+$connection_string   .= "port=$OPTIONS{'port'};";
+$connection_string   .= "mysql_multi_statements=1";
 my $dbh;
 eval {
     local $SIG{ALRM} = sub { die 'TIMEOUT' };
@@ -624,7 +623,7 @@ sub check_queries {
     exit $ERRORS{'OK'};
 }
 
-# Slow queries per second check
+# Slow queries per interval check
 # Adeded by Alex Simenduev (http://www.planetit.ws)
 sub check_slow_queries {
     my ($dbh, $opts, $args, $processlist, $variables, $status, $dbs) = @_;
@@ -637,19 +636,19 @@ sub check_slow_queries {
     validate_input($opts, 'critical', 'seconds');
 
     # Get delta values and calculate queries per second
-    my ($delta, $interval) = get_delta_values($tmp_file, $opts, $status->{'Slow_queries'}{'Value'});
-    my $qps = sprintf("%.2f", $delta / $interval);
+    my ($queries, $interval) = get_delta_values($tmp_file, $opts, $status->{'Slow_queries'}{'Value'});
+    my $qps = sprintf("%.2f", $queries / $interval);
 
-    if ($qps >= $opts->{'critical'} && $opts->{'critical'} != 0) {
-        print "CRITICAL: $delta slow queries in $interval seconds ($qps/sec)|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
+    if ($queries >= $opts->{'critical'} && $opts->{'critical'} != 0) {
+        print "CRITICAL: $queries slow queries in $interval seconds ($qps/sec)|'queries'=$queries;$opts->{'warning'};$opts->{'critical'};;\n";
         exit $ERRORS{'CRITICAL'};
     }
-    elsif ($qps >= $opts->{'warning'} && $opts->{'warning'} != 0) {
-        print "WARNING: $delta slow queries in $interval seconds ($qps/sec)|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
+    elsif ($queries >= $opts->{'warning'} && $opts->{'warning'} != 0) {
+        print "WARNING: $queries slow queries in $interval seconds ($qps/sec)|'queries'=$queries;$opts->{'warning'};$opts->{'critical'};;\n";
         exit $ERRORS{'WARNING'};
     }
 
-    print "OK: $delta slow queries in $interval seconds ($qps/sec)|'qps'=$qps;$opts->{'warning'};$opts->{'critical'};;\n";
+    print "OK: $queries slow queries in $interval seconds ($qps/sec)|'queries'=$queries;$opts->{'warning'};$opts->{'critical'};;\n";
     exit $ERRORS{'OK'};
 }
 
@@ -822,8 +821,8 @@ check_mysql_all - Nagios checks for 4.0+ versions of MySQL
 
  The following checks are supported:
 
- connect repl_io repl_sql repl_sbm repl_all mysql_query connections queries slow_queries table_status
- myisam_frag
+ connect repl_io repl_sql repl_sbm repl_all mysql_query connections
+ queries slow_queries table_status myisam_frag
 
 =head1 OPTIONS
 
@@ -985,7 +984,7 @@ Test if the queries per second is over a given threshold.
 
 =item B<slow-queries>
 
-Test if the slow queries per second is over a given threshold.
+Test if the slow queries per interval is over a given threshold.
     Permissions required: PROCESS
     I<--args> => ignored
     I<--warning> => default 0
