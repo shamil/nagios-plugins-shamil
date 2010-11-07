@@ -94,7 +94,7 @@ eval {
 } or Nagios::Plugin::Functions::nagios_exit(UNKNOWN, "Missing perl module VMware::VIRuntime. Download and install \'VMware Infrastructure (VI) Perl Toolkit\', available at http://www.vmware.com/download/sdk/\n $perl_module_instructions");
 
 $PROGNAME = basename($0);
-$VERSION = '0.2.0';
+$VERSION = '0.3.0';
 
 my $np = Nagios::Plugin->new(
   usage => "Usage: %s -D <data_center> | -H <host_name> [ -N <vm_name> ]\n"
@@ -161,7 +161,7 @@ my $np = Nagios::Plugin->new(
     . "            + device - device latency in ms\n"
     . "            + queue - queue latency in ms\n"
     . "        * vmfs - shows Datastore info\n"
-    . "            + (name) - info for datastore with name (name)\n"
+    . "            + (name) - free space info for datastore with name (name)\n"
     . "            ^ all datastore info\n"
     . "        * runtime - shows runtime info\n"
     . "            + con - connection state\n"
@@ -183,7 +183,7 @@ my $np = Nagios::Plugin->new(
     . "            + device - device latency in ms\n"
     . "            + queue - queue latency in ms\n"
     . "        * vmfs - shows Datastore info\n"
-    . "            + (name) - info for datastore with name (name)\n"
+    . "            + (name) - free space info for datastore with name (name)\n"
     . "            ^ all datastore info\n"
     . "        * runtime - shows runtime info\n"
     . "            + list(vm) - list of VMWare machines and their statuses\n"

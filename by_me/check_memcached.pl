@@ -1,9 +1,9 @@
 #!/usr/bin/perl -w
 # ============================== Summary =======================================
 # Program : check_memcached.pl
-# Version : 2010.8.18
+# Version : 2010.11.7
 # Date    : May 25 2010
-# Updated : Aug 18 2010
+# Updated : Nov 7 2010
 # Author  : Alex Simenduev - (http://www.planetit.ws)
 # Summary : This is a nagios plugin that checks memcached server state
 #
@@ -14,6 +14,10 @@
 # ================================ Change log ==================================
 # Legend:
 #               [*] Informational, [!] Bugix, [+] Added, [-] Removed
+#
+# Ver 2010.11.7:
+#               [!] Fixed bug when monitoring evictions of several instances
+#                   running on same host
 #
 # Ver 2010.8.18:
 #               [*] Changed eviction check to calculate values per interval
@@ -35,7 +39,7 @@ use File::Basename;
 
 # Variables Section
 # -------------------------------------------------------------------------- #
-my $VERSION       = "2010.8.18";
+my $VERSION       = "2010.11.7";
 my $SCRIPT_NAME   = basename(__FILE__);
 my $TIMEOUT       = 10;
 
@@ -122,7 +126,7 @@ elsif ($o_check =~ /^memory$/i) {
 }
 # Get number evictions
 elsif ($o_check =~ /^evictions$/i) {
-    my $tmp_file = "/tmp/$SCRIPT_NAME-$o_host-$o_check";
+    my $tmp_file = "/tmp/$SCRIPT_NAME-$o_host-$o_port-$o_check";
     my $interval;
 
     my $line = <$SOCKET>;
