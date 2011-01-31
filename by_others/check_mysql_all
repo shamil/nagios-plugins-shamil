@@ -8,6 +8,7 @@
 #
 # Modified version (0.0.9b). Added support for queries/slow-queries per second.
 # Modified version (0.0.9c). Changed slow queries check to be per interval.
+# Modified version (0.0.9d). Fixed queries check to work with newer MySQL versions
 # Modified by: Alex Simenduev (http://www.planetit.ws), on 19/07/2010
 #
 # @author  Ryan Lowe <ryan.a.lowe@percona.com>
@@ -29,7 +30,7 @@ use lib qw(
 );
 use utils qw(%ERRORS);
 
-my $VERSION     = '0.0.9c';
+my $VERSION     = '0.0.9d';
 my $SCRIPT_NAME = basename(__FILE__);
 my @CHECKS      = qw(connect repl_io repl_sql repl_sbm repl_all mysql_query connections queries slow_queries table_status myisam_frag);
 my @REPL_CHECKS = qw(repl_io repl_sql repl_sbm repl_all);
@@ -606,8 +607,12 @@ sub check_queries {
     validate_input($opts, 'warning',  'seconds');
     validate_input($opts, 'critical', 'seconds');
 
+    # Newer MySQL versions (5.0.76 and up) changed the meaning of the "Questions" status variable
+    # So we must use "Queries" variable instead.
+    my $queries = $status->{'Queries'}{'Value'} || $status->{'Questions'}{'Value'};
+
     # Get delta values and calculate queries per second
-    my ($delta, $interval) = get_delta_values($tmp_file, $opts, $status->{'Questions'}{'Value'});
+    my ($delta, $interval) = get_delta_values($tmp_file, $opts, $queries);
     my $qps = sprintf("%.2f", $delta / $interval);
 
     if ($qps >= $opts->{'critical'} && $opts->{'critical'} != 0) {

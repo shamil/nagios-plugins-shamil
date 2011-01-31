@@ -100,7 +100,7 @@ my $np = Nagios::Plugin->new(
   usage => "Usage: %s -D <data_center> | -H <host_name> [ -N <vm_name> ]\n"
     . "    -u <user> -p <pass> | -f <authfile>\n"
     . "    -l <command> [ -s <subcommand> ]\n"
-    . "    [ -x <black list> ]\n"
+    . "    [ -x <black_list> ] [ -o <additional_options> ]\n"
     . "    [ -t <timeout> ] [ -w <warn_range> ] [ -c <crit_range> ]\n"
     . '    [ -V ] [ -h ]',
   version => $VERSION,
@@ -127,8 +127,8 @@ my $np = Nagios::Plugin->new(
     . "            + send - send in KBps(Kilobytes per Second) \n"
     . "            ^ all net info\n"
     . "        * io - shows disk io info\n"
-    . "            + read - read latency in ms\n"
-    . "            + write - write latency in ms\n"
+    . "            + read - read latency in ms (totalReadLatency.average)\n"
+    . "            + write - write latency in ms (totalWriteLatency.average)\n"
     . "            ^ all disk io info\n"
     . "        * runtime - shows runtime info\n"
     . "            + status - overall host status (gray/green/red/yellow)\n"
@@ -280,8 +280,15 @@ $np->add_arg(
 
 $np->add_arg(
   spec => 'exclude|x=s',
-  help => "-x, --exclude=<black list>\n"
+  help => "-x, --exclude=<black_list>\n"
     . '   Specify black list',
+  required => 0,
+);
+
+$np->add_arg(
+  spec => 'options|o=s',
+  help => "-o, --options=<additional_options> \n"
+    . '   Specify additional command options',
   required => 0,
 );
 
@@ -299,6 +306,7 @@ my $command = $np->opts->command;
 my $subcommand = $np->opts->subcommand;
 my $sessionfile = $np->opts->sessionfile;
 my $blacklist = $np->opts->exclude;
+my $addopts = $np->opts->options;
 my $percw;
 my $percc;
 $output = "Unknown ERROR!";
@@ -325,7 +333,7 @@ $np->set_thresholds(critical => $critical, warning => $warning);
 
 eval
 {
-	die "Provide either Password/Username or Auth file\n" if ((!defined($password) || !defined($username) || defined($authfile)) && (defined($password) || defined($username) || !defined($authfile)));
+	die "Provide either Password/Username or Auth file or Session file\n" if ((!defined($password) || !defined($username) || defined($authfile)) && (defined($password) || defined($username) || !defined($authfile)) && (defined($password) || defined($username) || defined($authfile) || !defined($sessionfile)));
 	die "Both threshold values must be the same units\n" if (($percw && !$percc && defined($critical)) || (!$percw && $percc && defined($warning)));
 	if (defined($authfile))
 	{
@@ -347,7 +355,7 @@ eval
 	{
 		if (defined($sessionfile) and -e $sessionfile)
 		{
-			Vim::load_session(service_url => $datacenter, session_file => $sessionfile);
+			Opts::set_option("sessionfile", $sessionfile);
 		}
 		Util::connect("https://" . $datacenter . "/sdk/webService", $username, $password);
 	}
@@ -355,7 +363,7 @@ eval
 	{
 		if (defined($sessionfile) and -e $sessionfile)
 		{
-			Vim::load_session(service_url => $host, session_file => $sessionfile);
+			Opts::set_option("sessionfile", $sessionfile);
 		}
 		Util::connect("https://" . $host . "/sdk/webService", $username, $password);
 	}
@@ -418,7 +426,7 @@ eval
 		}
 		elsif (uc($command) eq "VMFS")
 		{
-			($result, $output) = host_list_vm_volumes_info($esx, $np, $subcommand, $blacklist, $percc || $percw);
+			($result, $output) = host_list_vm_volumes_info($esx, $np, $subcommand, $blacklist, $percc || $percw, $addopts);
 		}
 		elsif (uc($command) eq "RUNTIME")
 		{
@@ -464,7 +472,7 @@ eval
 		}
 		elsif (uc($command) eq "VMFS")
 		{
-			($result, $output) = dc_list_vm_volumes_info($np, $subcommand, $blacklist, $percc || $percw);
+			($result, $output) = dc_list_vm_volumes_info($np, $subcommand, $blacklist, $percc || $percw, $addopts);
 		}
 		elsif (uc($command) eq "RUNTIME")
 		{
@@ -669,10 +677,10 @@ sub format_issue {
 sub host_cpu_info
 {
 	my ($host, $np, $subcommand) = @_;
-	 
+
 	my $res = CRITICAL;
 	my $output = 'HOST CPU Unknown error';
-	
+
 	if (defined($subcommand))
 	{
 		if (uc($subcommand) eq "USAGE")
@@ -723,10 +731,10 @@ sub host_cpu_info
 sub host_mem_info
 {
 	my ($host, $np, $subcommand) = @_;
-	 
+
 	my $res = CRITICAL;
 	my $output = 'HOST MEM Unknown error';
-	
+
 	if (defined($subcommand))
 	{
 		if (uc($subcommand) eq "USAGE")
@@ -827,7 +835,7 @@ sub host_mem_info
 sub host_net_info
 {
 	my ($host, $np, $subcommand) = @_;
-	 
+
 	my $res = CRITICAL;
 	my $output = 'HOST NET Unknown error';
 	
@@ -999,10 +1007,10 @@ sub host_net_info
 sub host_disk_io_info
 {
 	my ($host, $np, $subcommand) = @_;
-	 
+
 	my $res = CRITICAL;
 	my $output = 'HOST IO Unknown error';
-	
+
 	if (defined($subcommand))
 	{
 		if (uc($subcommand) eq "ABORTED")
@@ -1117,10 +1125,15 @@ sub host_disk_io_info
 
 sub host_list_vm_volumes_info
 {
-	my ($host, $np, $subcommand, $blacklist, $perc) = @_;
-	 
+	my ($host, $np, $subcommand, $blacklist, $perc, $addopts) = @_;
+
 	my $res = CRITICAL;
 	my $output = 'HOST VM VOLUMES Unknown error';
+
+	my $usedflag;
+	my $briefflag;
+	$usedflag = $addopts =~ m/(^|\s|\t|,)\Qused\E($|\s|\t|,)/ if (defined($addopts));
+	$briefflag = $addopts =~ m/(^|\s|\t|,)\Qbrief\E($|\s|\t|,)/ if (defined($addopts));
 
 	if (defined($subcommand))
 	{
@@ -1139,6 +1152,13 @@ sub host_list_vm_volumes_info
 					$res = OK;
 					my $value1 = simplify_number(convert_number($store->summary->freeSpace) / 1024 / 1024);
 					my $value2 = simplify_number(convert_number($store->info->freeSpace) / convert_number($store->summary->capacity) * 100);
+
+					if ($usedflag)
+					{
+						$value1 = simplify_number(convert_number($store->summary->capacity) / 1024 / 1024) - $value1;
+						$value2 = 100 - $value2;
+					}
+
 					if ($perc)
 					{
 						$res = $np->check_threshold(check => $value2);
@@ -1165,6 +1185,8 @@ sub host_list_vm_volumes_info
 		my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'datastore']);
 		die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
 		die "Insufficient rights to access Datastores on the Host\n" if (!defined($host_view->datastore));
+
+		my $state;
 		foreach my $ref_store (@{$host_view->datastore})
 		{
 			my $store = Vim::get_view(mo_ref => $ref_store, properties => ['summary', 'info']);
@@ -1180,17 +1202,25 @@ sub host_list_vm_volumes_info
 				my $value1 = simplify_number(convert_number($store->summary->freeSpace) / 1024 / 1024);
 				my $value2 = simplify_number(convert_number($store->info->freeSpace) / convert_number($store->summary->capacity) * 100);
 
+				if ($usedflag)
+				{
+					$value1 = simplify_number(convert_number($store->summary->capacity) / 1024 / 1024) - $value1;
+					$value2 = 100 - $value2;
+				}
+
 				if ($perc)
 				{
-					$res = Nagios::Plugin::Functions::max_state($res, $np->check_threshold(check => $value2));
+					$state = $np->check_threshold(check => $value2);
+					$res = Nagios::Plugin::Functions::max_state($res, $state);
 				}
 				else
 				{
-					$res = Nagios::Plugin::Functions::max_state($res, $np->check_threshold(check => $value1));
+					$state = $np->check_threshold(check => $value1);
+					$res = Nagios::Plugin::Functions::max_state($res, $state);
 				}
 
 				$np->add_perfdata(label => $store->summary->name, value => $perc?$value2:$value1, uom => $perc?'%':'MB', threshold => $np->threshold);
-				$output .= $store->summary->name . "=". $value1 . " MB (" . $value2 . "%), ";
+				$output .= $store->summary->name . "=". $value1 . " MB (" . $value2 . "%), " if (!$briefflag || $state != OK);
 			}
 			else
 			{
@@ -1201,7 +1231,14 @@ sub host_list_vm_volumes_info
 
 		chop($output);
 		chop($output);
-		$output = "storages : " . $output;
+		if ($output)
+		{
+			$output = "storages : " . $output;
+		}
+		else
+		{
+			$output = "all values are in normal range";
+		}
 	}
 
 	return ($res, $output);
@@ -1833,10 +1870,10 @@ sub host_storage_info
 sub vm_cpu_info
 {
 	my ($vmname, $np, $subcommand) = @_;
-	 
+
 	my $res = CRITICAL;
 	my $output = 'HOST-VM CPU Unknown error';
-	
+
 	if (defined($subcommand))
 	{
 		if (uc($subcommand) eq "USAGE")
@@ -1900,10 +1937,10 @@ sub vm_cpu_info
 sub vm_mem_info
 {
 	my ($vmname, $np, $subcommand) = @_;
-	 
+
 	my $res = CRITICAL;
 	my $output = 'HOST-VM MEM Unknown error';
-	
+
 	if (defined($subcommand))
 	{
 		if (uc($subcommand) eq "USAGE")
@@ -2043,10 +2080,10 @@ sub vm_mem_info
 sub vm_net_info
 {
 	my ($vmname, $np, $subcommand) = @_;
-	 
+
 	my $res = CRITICAL;
 	my $output = 'HOST-VM NET Unknown error';
-	
+
 	if (defined($subcommand))
 	{
 		if (uc($subcommand) eq "USAGE")
@@ -2108,10 +2145,10 @@ sub vm_net_info
 sub vm_disk_io_info
 {
 	my ($vmname, $np, $subcommand) = @_;
-	 
+
 	my $res = CRITICAL;
 	my $output = 'HOST-VM IO Unknown error';
-	
+
 	if (defined($subcommand))
 	{
 		if (uc($subcommand) eq "USAGE")
@@ -2326,10 +2363,10 @@ sub return_cluster_DRS_recommendations {
 sub dc_cpu_info
 {
 	my ($np, $subcommand) = @_;
-	 
+
 	my $res = CRITICAL;
 	my $output = 'DC CPU Unknown error';
-	
+
 	if (defined($subcommand))
 	{
 		if (uc($subcommand) eq "USAGE")
@@ -2388,10 +2425,10 @@ sub dc_cpu_info
 sub dc_mem_info
 {
 	my ($np, $subcommand) = @_;
-	 
+
 	my $res = CRITICAL;
 	my $output = 'DC MEM Unknown error';
-	
+
 	if (defined($subcommand))
 	{
 		if (uc($subcommand) eq "USAGE")
@@ -2514,10 +2551,10 @@ sub dc_mem_info
 sub dc_net_info
 {
 	my ($np, $subcommand) = @_;
-	 
+
 	my $res = CRITICAL;
 	my $output = 'DC NET Unknown error';
-	
+
 	if (defined($subcommand))
 	{
 		if (uc($subcommand) eq "USAGE")
@@ -2588,10 +2625,15 @@ sub dc_net_info
 
 sub dc_list_vm_volumes_info
 {
-	my ($np, $subcommand, $blacklist, $perc) = @_;
-	
+	my ($np, $subcommand, $blacklist, $perc, $addopts) = @_;
+
 	my $res = CRITICAL;
 	my $output = 'DC VM VOLUMES Unknown error';
+
+	my $usedflag;
+	my $briefflag;
+	$usedflag = $addopts =~ m/(^|\s|\t|,)\Qused\E($|\s|\t|,)/ if (defined($addopts));
+	$briefflag = $addopts =~ m/(^|\s|\t|,)\Qbrief\E($|\s|\t|,)/ if (defined($addopts));
 
 	if (defined($subcommand))
 	{
@@ -2612,6 +2654,13 @@ sub dc_list_vm_volumes_info
 						$res = OK;
 						my $value1 = simplify_number(convert_number($store->summary->freeSpace) / 1024 / 1024);
 						my $value2 = simplify_number(convert_number($store->info->freeSpace) / convert_number($store->summary->capacity) * 100);
+
+						if ($usedflag)
+						{
+							$value1 = simplify_number(convert_number($store->summary->capacity) / 1024 / 1024) - $value1;
+							$value2 = 100 - $value2;
+						}
+
 						if ($perc)
 						{
 							$res = $np->check_threshold(check => $value2);
@@ -2641,6 +2690,7 @@ sub dc_list_vm_volumes_info
 		die "Runtime error\n" if (!defined($host_views));
 		die "Datacenter does not contain any hosts\n" if (!@$host_views);
 
+		my $state;
 		foreach my $host (@$host_views) {
 			die "Insufficient rights to access Datastores on the DC\n" if (!defined($host->datastore));
 			foreach my $ref_store (@{$host->datastore})
@@ -2658,17 +2708,25 @@ sub dc_list_vm_volumes_info
 					my $value1 = simplify_number(convert_number($store->summary->freeSpace) / 1024 / 1024);
 					my $value2 = simplify_number(convert_number($store->info->freeSpace) / convert_number($store->summary->capacity) * 100);
 
+					if ($usedflag)
+					{
+						$value1 = simplify_number(convert_number($store->summary->capacity) / 1024 / 1024) - $value1;
+						$value2 = 100 - $value2;
+					}
+
 					if ($perc)
 					{
-						$res = Nagios::Plugin::Functions::max_state($res, $np->check_threshold(check => $value2));
+						$state = $np->check_threshold(check => $value2);
+						$res = Nagios::Plugin::Functions::max_state($res, $state);
 					}
 					else
 					{
-						$res = Nagios::Plugin::Functions::max_state($res, $np->check_threshold(check => $value1));
+						$state = $np->check_threshold(check => $value1);
+						$res = Nagios::Plugin::Functions::max_state($res, $state);
 					}
 
 					$np->add_perfdata(label => $store->summary->name, value => $perc?$value2:$value1, uom => $perc?'%':'MB', threshold => $np->threshold);
-					$output .= $store->summary->name . "=". $value1 . " MB (" . $value2 . "%), ";
+					$output .= $store->summary->name . "=". $value1 . " MB (" . $value2 . "%), " if (!$briefflag || $state != OK);
 				}
 				else
 				{
@@ -2679,7 +2737,14 @@ sub dc_list_vm_volumes_info
 		}
 		chop($output);
 		chop($output);
-		$output = "storages : " . $output;
+		if ($output)
+		{
+			$output = "storages : " . $output;
+		}
+		else
+		{
+			$output = "all values are in normal range";
+		}
 	}
 
 	return ($res, $output);
@@ -2688,10 +2753,10 @@ sub dc_list_vm_volumes_info
 sub dc_disk_io_info
 {
 	my ($np, $subcommand) = @_;
-	 
+
 	my $res = CRITICAL;
 	my $output = 'DC IO Unknown error';
-	
+
 	if (defined($subcommand))
 	{
 		if (uc($subcommand) eq "ABORTED")
