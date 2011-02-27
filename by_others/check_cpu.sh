@@ -1,34 +1,34 @@
 #!/bin/bash
 # ========================================================================================
-# CPU Utilization Statistics plugin for Nagios 
+# CPU Utilization Statistics plugin for Nagios
 #
 # Written by	: Andreas Baess based on a script by Steve Bosek
-# Release	: 1.1
+# Release	    : 1.1
 # Creation date : 3 May 2008
 # Package       : DTB Nagios Plugin
 # Description   : Nagios plugin (script) to check cpu utilization statistics.
-#		This script has been designed and written on Unix plateform (Linux, Aix, Solaris), 
-#		requiring iostat as external program. The locations of these can easily 
-#		be changed by editing the variables $IOSTAT at the top of the script. 
+#		This script has been designed and written on Unix plateform (Linux, Aix, Solaris),
+#		requiring iostat as external program. The locations of these can easily
+#		be changed by editing the variables $IOSTAT at the top of the script.
 #		The script is used to query 4 of the key cpu statistics (user,system,iowait,idle)
-#		at the same time. 
+#		at the same time.
 #
 # Usage         : ./check_cpu.sh [-w <warn>] [-c <crit]
 #                                [-uw <user_cpu warn>] [-uc <user_cpu crit>]
 #                                [-sw <sys_cpu warn>] [-sc <sys_cpu crit>]
 #                                [-iw <io_wait_cpu warn>] [-ic <io_wait_cpu crit>]
-#                                [-i <intervals in second>] [-n <report number>] 
+#                                [-i <intervals in second>] [-n <report number>]
 # ----------------------------------------------------------------------------------------
 # ========================================================================================
 #
 # HISTORY :
-#     Release	|     Date	|    Authors	| 	Description
+#     Release	|     Date	    |    Authors    | Description
 # --------------+---------------+---------------+------------------------------------------
-#	1.1	|    03.05.08	| Andreas Baess	| Changed script to use vmstat on Linux because
+#	1.1	        |    03.05.08	| Andreas Baess	| Changed script to use vmstat on Linux because
 #               |               |               | iostat does not use integers
 #               |               |               | Fixed output to display the IO-wait warning threshhold
 # --------------+---------------+---------------+------------------------------------------
-#	1.0	|    03.05.08	| Andreas Baess	| Changed script so that thresholds are global
+#	1.0	        |    03.05.08	| Andreas Baess	| Changed script so that thresholds are global
 #               |               |               | and output can be parsed by perfprocessing
 #               |               |               | changed default warning to 70 critical to 90
 # =========================================================================================
@@ -77,16 +77,16 @@ print_usage() {
 	echo "Usage: check_cpu.sh [flags]"
 	echo ""
 	echo "Flags:"
-	echo "  -w  <number> : Global Warning level in % for user/system/io-wait cpu"
+	echo "  -w  <number> : Global Warning level in % for user/system/iowait cpu"
 	echo "  -uw <number> : Warning level in % for user cpu"
-	echo "  -iw <number> : Warning level in % for IO_wait cpu"
 	echo "  -sw <number> : Warning level in % for system cpu"
-	echo "  -c  <number> : Global Critical level in % for user/system/io-wait cpu"
+	echo "  -iw <number> : Warning level in % for iowait cpu"
+	echo "  -c  <number> : Global Critical level in % for user/system/iowait cpu"
 	echo "  -uc <number> : Critical level in % for user cpu"
-	echo "  -ic <number> : Critical level in % for IO_wait cpu"
 	echo "  -sc <number> : Critical level in % for system cpu"
+	echo "  -ic <number> : Critical level in % for iowait cpu"
 	echo "  -i  <number> : Interval in seconds for iostat (default : 1)"
-	echo "  -n  <number> : Number report for iostat (default : 3)"
+	echo "  -n  <number> : Number of reports for iostat (default : 3)"
 	echo "  -h  Show this page"
 	echo ""
     echo "Usage: $PROGNAME"
@@ -158,7 +158,7 @@ while [ $# -gt 0 ]; do
         -n | --number)
                shift
                NUM_REPORT=$1
-                ;;        
+                ;;
         *)  echo "Unknown argument: $1"
             print_usage
             exit $STATE_UNKNOWN
@@ -169,51 +169,50 @@ done
 
 # CPU Utilization Statistics Unix Plateform ( Linux,AIX,Solaris are supported )
 case `uname` in
-#	Linux ) CPU_REPORT=`iostat -c $INTERVAL_SEC $NUM_REPORT |  tr -s ' ' ';' | sed '/^$/d' | tail -1`
-#			CPU_USER=`echo $CPU_REPORT | cut -d ";" -f 2`
+	Linux ) CPU_REPORT=`iostat -c $INTERVAL_SEC $NUM_REPORT | tr -s ' ' ';' | sed '/^$/d' | tail -1`
+#			CPU_USER=`echo $CPU_REPORT   | cut -d ";" -f 2`
 #			CPU_SYSTEM=`echo $CPU_REPORT | cut -d ";" -f 4`
 #			CPU_IOWAIT=`echo $CPU_REPORT | cut -d ";" -f 5`
-#			CPU_IDLE=`echo $CPU_REPORT | cut -d ";" -f 6`
-#            ;;
- 	AIX ) CPU_REPORT=`iostat -t $INTERVAL_SEC $NUM_REPORT | sed -e 's/,/./g'|tr -s ' ' ';' | tail -1`
-			CPU_USER=`echo $CPU_REPORT | cut -d ";" -f 4`
-			CPU_SYSTEM=`echo $CPU_REPORT | cut -d ";" -f 5`
-			CPU_IOWAIT=`echo $CPU_REPORT | cut -d ";" -f 7`
-			CPU_IDLE=`echo $CPU_REPORT | cut -d ";" -f 6`
-            ;;
+#			CPU_IDLE=`echo $CPU_REPORT   | cut -d ";" -f 6`
+#           ;;
   	Linux ) CPU_REPORT=`vmstat -n $INTERVAL_SEC $NUM_REPORT | tail -1`
-      			CPU_USER=`echo $CPU_REPORT | awk '{ print $13 }'`
+      		CPU_USER=`echo $CPU_REPORT   | awk '{ print $13 }'`
 			CPU_SYSTEM=`echo $CPU_REPORT | awk '{ print $14 }'`
 			CPU_IOWAIT=`echo $CPU_REPORT | awk '{ print $16 }'`
-			CPU_IDLE=`echo $CPU_REPORT | awk '{ print $15 }'`
+			CPU_IDLE=`echo $CPU_REPORT   | awk '{ print $15 }'`
+            ;;
+ 	AIX ) CPU_REPORT=`iostat -t $INTERVAL_SEC $NUM_REPORT | sed -e 's/,/./g'|tr -s ' ' ';' | tail -1`
+			CPU_USER=`echo $CPU_REPORT   | cut -d ";" -f 4`
+			CPU_SYSTEM=`echo $CPU_REPORT | cut -d ";" -f 5`
+			CPU_IOWAIT=`echo $CPU_REPORT | cut -d ";" -f 7`
+			CPU_IDLE=`echo $CPU_REPORT   | cut -d ";" -f 6`
             ;;
   	SunOS ) CPU_REPORT=`iostat -c $INTERVAL_SEC $NUM_REPORT | tail -1`
-      			CPU_USER=`echo $CPU_REPORT | awk '{ print $1 }'`
+      		CPU_USER=`echo $CPU_REPORT   | awk '{ print $1 }'`
 			CPU_SYSTEM=`echo $CPU_REPORT | awk '{ print $2 }'`
 			CPU_IOWAIT=`echo $CPU_REPORT | awk '{ print $3 }'`
-			CPU_IDLE=`echo $CPU_REPORT | awk '{ print $4 }'`
+			CPU_IDLE=`echo $CPU_REPORT   | awk '{ print $4 }'`
             ;;
 	*) 		echo "UNKNOWN: `uname` not yet supported by this plugin. Coming soon !"
-			exit $STATE_UNKNOWN 
+			exit $STATE_UNKNOWN
 	    ;;
 	esac
-
 # Return
 
 # Are we in a critical state?
 if [ ${CPU_IOWAIT} -ge ${IO_CPU_C} -o ${CPU_USER} -ge ${U_CPU_C} -o ${CPU_SYSTEM} -ge ${S_CPU_C}  ];
 then
-	echo "CPU CRITICAL : user=${CPU_USER}% system=${CPU_SYSTEM}% iowait=${CPU_IOWAIT}% idle=${CPU_IDLE}% | cpu_user=${CPU_USER}%;${U_CPU_W};${U_CPU_C}; cpu_sys=${CPU_SYSTEM}%;${S_CPU_W};${S_CPU_C}; cpu_iowait=${CPU_IOWAIT}%;${IO_CPU_W};${IO_CPU_C}; cpu_idle=${CPU_IDLE}%;"
+	echo "CPU CRITICAL: user=${CPU_USER}% system=${CPU_SYSTEM}% iowait=${CPU_IOWAIT}% idle=${CPU_IDLE}% | cpu_user=${CPU_USER}%;${U_CPU_W};${U_CPU_C}; cpu_sys=${CPU_SYSTEM}%;${S_CPU_W};${S_CPU_C}; cpu_iowait=${CPU_IOWAIT}%;${IO_CPU_W};${IO_CPU_C}; cpu_idle=${CPU_IDLE}%;"
 	exit $STATE_CRITICAL
 fi
 
 # Are we in a warning state?
 if [ ${CPU_IOWAIT} -ge ${IO_CPU_W} -o ${CPU_USER} -ge ${U_CPU_W} -o ${CPU_SYSTEM} -ge ${S_CPU_W}  ];
 then
-	echo "CPU WARNING : user=${CPU_USER}% system=${CPU_SYSTEM}% iowait=${CPU_IOWAIT}% idle=${CPU_IDLE}% | cpu_user=${CPU_USER}%;${U_CPU_W};${U_CPU_C}; cpu_sys=${CPU_SYSTEM}%;${S_CPU_W};${S_CPU_C}; cpu_iowait=${CPU_IOWAIT}%;${IO_CPU_W};${IO_CPU_C}; cpu_idle=${CPU_IDLE}%;"
+	echo "CPU WARNING: user=${CPU_USER}% system=${CPU_SYSTEM}% iowait=${CPU_IOWAIT}% idle=${CPU_IDLE}% | cpu_user=${CPU_USER}%;${U_CPU_W};${U_CPU_C}; cpu_sys=${CPU_SYSTEM}%;${S_CPU_W};${S_CPU_C}; cpu_iowait=${CPU_IOWAIT}%;${IO_CPU_W};${IO_CPU_C}; cpu_idle=${CPU_IDLE}%;"
 	exit $STATE_WARNING
 fi
 
 # If we got this far, everything seems to be OK - IDLE has no threshold
-echo "CPU OK : user=${CPU_USER}% system=${CPU_SYSTEM}% iowait=${CPU_IOWAIT}% idle=${CPU_IDLE}% | cpu_user=${CPU_USER}%;${U_CPU_W};${U_CPU_C}; cpu_sys=${CPU_SYSTEM}%;${S_CPU_W};${S_CPU_C}; cpu_iowait=${CPU_IOWAIT}%;${IO_CPU_W};${IO_CPU_C}; cpu_idle=${CPU_IDLE}%;"
+echo "CPU OK: user=${CPU_USER}% system=${CPU_SYSTEM}% iowait=${CPU_IOWAIT}% idle=${CPU_IDLE}% | cpu_user=${CPU_USER}%;${U_CPU_W};${U_CPU_C}; cpu_sys=${CPU_SYSTEM}%;${S_CPU_W};${S_CPU_C}; cpu_iowait=${CPU_IOWAIT}%;${IO_CPU_W};${IO_CPU_C}; cpu_idle=${CPU_IDLE}%;"
 exit $STATE_OK
