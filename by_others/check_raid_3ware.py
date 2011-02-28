@@ -19,9 +19,8 @@
 
 """Nagios plugin to test the state of all 3ware raid arrays and/or drives
    on all 3ware controllers on the local machine. Requires the tw_cli program
-   written by 3ware, which should be called tw_cli_64 if running on a 64-bit
-   system. May be remotely executed via any of the standard remote nagios
-   execution mechanisms"""
+   written by 3ware. May be remotely executed via any of the standard remote
+   nagios execution mechanisms"""
 
 __version__ = 1.1
 
@@ -380,8 +379,8 @@ def main():
                        "--verbose",
                        action="count",
                        dest="verbosity",
-                       help="Verbose mode. Good for testing plugin. By default\
- only one result line is printed as per Nagios standards")
+                       help="Verbose mode. Good for testing plugin. By default "\
+                          + "only one result line is printed as per Nagios standards")
 
     parser.add_option( "-V",
                        "--version",
