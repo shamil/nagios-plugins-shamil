@@ -16,24 +16,28 @@
 #
 #   Version 1.4 - 27/02/2010: Modified by Alex Simenduev
 #   - Changed how chroot is treated
-#   - Changed some default pathes
-#   - Small refactoring in the code
+#   - Improved named PID check
+#   - Changed some default paths
+#   - PID check is mandatory now
+#   - Small refactoring of the code
 
 PROGNAME=`basename $0`
 VERSION="1.4"
 AUTHOR="2009, Mike Adolphs (http://www.matejunkie.com/)"
 
+# Nagios status codes
 ST_OK=0
 ST_WR=1
 ST_CR=2
 ST_UK=3
-path_rndc="/usr/sbin"               # default rndc bin path
-path_stats="/var/named/data"        # default rndc stats
-path_chroot="/var/named/chroot"     # default chroot path, when used with --chroot option
-path_pid="/var/run/named"           # default pid path
-name_pid="named.pid"                # default pid file-name
+
+# Default paths
+path_rndc="/usr/sbin"           # default rndc bin path
+path_stats="/var/named/data"    # default rndc stats
+path_chroot="/var/named/chroot" # default chroot path, when used with --chroot option
+path_pid="/var/run/named"       # default pid path
+name_pid="named.pid"            # default pid file-name
 path_tmp="/tmp"
-pid_check=1
 version=9.3
 
 print_version() {
@@ -54,7 +58,7 @@ print_help() {
     echo ""
     echo "$PROGNAME -p/--path_pid /var/run/named -n/--name_pid named.pid"
     echo "  -r/--path-rndc /usr/sbin -s/--path-stats /var/bind"
-    echo "  -V/--bind-version 9.3/9.4/9.5 -N"
+    echo "  -V/--bind-version 9.3/9.4/9.5"
     echo ""
     echo "Options:"
     echo "  -p/--path-pid)"
@@ -74,9 +78,6 @@ print_help() {
     echo "  -V/--bind-version)"
     echo "     Specifies the bind version you're running. Currently there's"
     echo "     BIND 9.3, 9.4 and 9.5 supported. Default is: 9.3"
-    echo "  -N/--no-pid-check)"
-    echo "     If you don't want that the script checks for the pid file,"
-    echo "     use this option. Default is: off"
     echo "  -C/--chroot)"
     echo "     If you're running BIND in a chroot environment, use this"
     echo "     option to define a chrooted path. Default is: /var/named/chroot"
@@ -117,9 +118,6 @@ while test -n "$1"; do
             version=$2
             shift
             ;;
-        --no-check-pid|-N)
-            pid_check=0
-            ;;
         --chroot|-C)
             [ -n "$2" ] && {
                 path_chroot=$2
@@ -139,7 +137,13 @@ while test -n "$1"; do
 done
 
 check_pid() {
-    [ -f "$path_pid/$name_pid" ] && return 0 || return 1
+    [ -f "$path_pid/$name_pid" ] && {
+        read PID < "$path_pid/$name_pid"
+        [[ "$PID" =~ ^[0-9]+$ ]] || return 1
+        [ -d "/proc/$PID" ] && return 0
+    }
+
+    return 1
 }
 
 trigger_stats() {
@@ -263,18 +267,16 @@ get_perfdata() {
     esac
 }
 
-if [ ${pid_check} == 1 ]
-then
-    check_pid || {
-        echo "There's no pid file '$name_pid', bind probably not running?"
-        exit $ST_CR
-    }
-fi
+# First check if bind is running
+check_pid || {
+    echo "CRITICAL: Bind is not running"
+    exit $ST_CR
+}
 
 trigger_stats
 copy_to_tmp
 get_vals
 get_perfdata
 
-echo "BIND is running. $success successfull requests, $referral referrals, $nxdomain nxdomains since last check. | $perfdata"
+echo "OK: $success successfull requests, $referral referrals, $nxdomain nxdomains since last check. | $perfdata"
 exit $ST_OK
