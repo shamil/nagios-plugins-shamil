@@ -9,6 +9,7 @@
 # Modified version (0.0.9b). Added support for queries/slow-queries per second.
 # Modified version (0.0.9c). Changed slow queries check to be per interval.
 # Modified version (0.0.9d). Fixed queries check to work with newer MySQL versions
+# Modified version (0.1.0a). Merged fixes from original trunk
 # Modified by: Alex Simenduev (http://www.planetit.ws), on 19/07/2010
 #
 # @author  Ryan Lowe <ryan.a.lowe@percona.com>
@@ -23,14 +24,10 @@ use File::Basename;
 use Getopt::Long;
 use Pod::Usage;
 use DBI;
-use lib qw(
-    /usr/lib/nagios/plugins
-    /usr/lib64/nagios/plugins
-    /usr/local/nagios/libexec
-);
+use lib qw(/usr/lib/nagios/plugins /usr/lib64/nagios/plugins /usr/local/nagios/libexec);
 use utils qw(%ERRORS);
 
-my $VERSION     = '0.0.9d';
+my $VERSION     = '0.1.0';
 my $SCRIPT_NAME = basename(__FILE__);
 my @CHECKS      = qw(connect repl_io repl_sql repl_sbm repl_all mysql_query connections queries slow_queries table_status myisam_frag);
 my @REPL_CHECKS = qw(repl_io repl_sql repl_sbm repl_all);
@@ -270,7 +267,7 @@ sub get_db_info {
         $processlist = $dbh->selectall_hashref('SHOW FULL PROCESSLIST', 1);
         $variables   = $dbh->selectall_hashref('SHOW GLOBAL VARIABLES', 1);
         $status      = $dbh->selectall_hashref('SHOW /*!50002 GLOBAL*/ STATUS', 1);
-        $dbs         = $dbh->selectcol_arrayref("SHOW DATABASES");
+        $dbs         = $dbh->selectcol_arrayref('SHOW DATABASES');
         alarm(0);
     };
     alarm(0);
@@ -562,8 +559,6 @@ sub check_mysql_query {
         exit $ERRORS{'CRITICAL'};
     }
 
-    #print($r);
-
     print "OK: Query Executed Successfully\n";
     exit $ERRORS{'OK'};
 }
@@ -673,7 +668,7 @@ sub check_table_status {
                 push(@errs, "$db.$table marked as crashed");
             } elsif (/(err(?:code|no):\s\d+)/i) {
                 push(@errs, "$db.$table has an error ($1)");
-            } elsif (! defined($tables_status->{$db}{$table}{'Rows'})) {
+            } elsif (! defined($tables_status->{$db}{$table}{'Rows'}) && $tables_status->{$db}{$table}{'Comment'} ne 'VIEW') {
                 push(@errs, "$db.$table is corrupted");
             }
         }
