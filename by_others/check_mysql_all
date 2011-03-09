@@ -27,7 +27,7 @@ use DBI;
 use lib qw(/usr/lib/nagios/plugins /usr/lib64/nagios/plugins /usr/local/nagios/libexec);
 use utils qw(%ERRORS);
 
-my $VERSION     = '0.1.0';
+my $VERSION     = '0.1.0a';
 my $SCRIPT_NAME = basename(__FILE__);
 my @CHECKS      = qw(connect repl_io repl_sql repl_sbm repl_all mysql_query connections queries slow_queries table_status myisam_frag);
 my @REPL_CHECKS = qw(repl_io repl_sql repl_sbm repl_all);

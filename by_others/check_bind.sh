@@ -20,6 +20,7 @@
 #   - Changed some default paths
 #   - PID check is mandatory now
 #   - Small refactoring of the code
+#
 
 PROGNAME=`basename $0`
 VERSION="1.4"

@@ -4,8 +4,8 @@
 #
 # License: GPL
 # Copyright (c) 2008 op5 AB
-# Author: Kostyantyn Gushchyn <dev@op5.com>
-# Contributor(s): Patrick Müller, Jeremy Martin, Eric Jonsson, stumpr, John Cavanaugh, Libor Klepac, maikmayers
+# Author: Kostyantyn Hushchyn <dev@op5.com>
+# Contributor(s): Patrick Müller, Jeremy Martin, Eric Jonsson, stumpr, John Cavanaugh, Libor Klepac, maikmayers, Steffen Poulsen
 #
 # For direct contact with any of the op5 developers send a mail to
 # dev@op5.com
@@ -94,7 +94,7 @@ eval {
 } or Nagios::Plugin::Functions::nagios_exit(UNKNOWN, "Missing perl module VMware::VIRuntime. Download and install \'VMware Infrastructure (VI) Perl Toolkit\', available at http://www.vmware.com/download/sdk/\n $perl_module_instructions");
 
 $PROGNAME = basename($0);
-$VERSION = '0.3.0';
+$VERSION = '0.4.0';
 
 my $np = Nagios::Plugin->new(
   usage => "Usage: %s -D <data_center> | -H <host_name> [ -N <vm_name> ]\n"
@@ -959,6 +959,7 @@ sub host_net_info
 			$res = OK;
 			my $OKCount = 0;
 			my $BadCount = 0;
+			my @switches = ();
 
 			# create a hash of NIC info to facilitate easy lookups
 			my %NIC = ();
@@ -967,23 +968,29 @@ sub host_net_info
 				$NIC{$_->key} = $_;
 			}
 
-			# see which NICs are actively part of a vswitch
-			foreach (@{$network_config->vswitch})
+			push(@switches, $network_config->vswitch) if (exists($network_config->{vswitch}));
+			push(@switches, $network_config->proxySwitch) if (exists($network_config->{proxySwitch}));
+
+			# see which NICs are actively part of a switch
+			foreach my $switch (@switches)
 			{
-				# get list of physical nics
-				if (defined($_->pnic)){
-					foreach my $nic_key (@{$_->pnic})
-					{
-						if (!defined($NIC{$nic_key}->linkSpeed))
+				foreach (@{$switch})
+				{
+					# get list of physical nics
+					if (defined($_->pnic)){
+						foreach my $nic_key (@{$_->pnic})
 						{
-							$output .= ", " if ($output);
-							$output .= $NIC{$nic_key}->device . " is unplugged";
-							$res = CRITICAL;
-							$BadCount++;
-						}
-						else
-						{
-							$OKCount++;
+							if (!defined($NIC{$nic_key}->linkSpeed))
+							{
+								$output .= ", " if ($output);
+								$output .= $NIC{$nic_key}->device . " is unplugged";
+								$res = CRITICAL;
+								$BadCount++;
+							}
+							else
+							{
+								$OKCount++;
+							}
 						}
 					}
 				}
@@ -1038,24 +1045,31 @@ sub host_net_info
 			}
 
 			my $nic_output = '';
+			my @switches = ();
 
-			# see which NICs are actively part of a vswitch
-			foreach (@{$network_config->vswitch})
+			push(@switches, $network_config->vswitch) if (exists($network_config->{vswitch}));
+			push(@switches, $network_config->proxySwitch) if (exists($network_config->{proxySwitch}));
+
+			# see which NICs are actively part of a switch
+			foreach my $switch (@switches)
 			{
-				# get list of physical nics
-				if (defined($_->pnic)){
-					foreach  my $nic_key (@{$_->pnic})
-					{
-						if (!defined($NIC{$nic_key}->linkSpeed))
+				foreach (@{$switch})
+				{
+					# get list of physical nics
+					if (defined($_->pnic)){
+						foreach my $nic_key (@{$_->pnic})
 						{
-							$nic_output .= ", " if ($nic_output);
-							$nic_output .= $NIC{$nic_key}->device . " is unplugged";
-							$res = CRITICAL;
-							$BadCount++;
-						}
-						else
-						{
-							$OKCount++;
+							if (!defined($NIC{$nic_key}->linkSpeed))
+							{
+								$nic_output .= ", " if ($output);
+								$nic_output .= $NIC{$nic_key}->device . " is unplugged";
+								$res = CRITICAL;
+								$BadCount++;
+							}
+							else
+							{
+								$OKCount++;
+							}
 						}
 					}
 				}
@@ -1468,10 +1482,18 @@ sub host_runtime_info
 			my $up = 0;
 			$output = '';
 
-			foreach my $vm (@$vm_views) {
-				my $vm_state = $vm->runtime->powerState->val;
-				$up += $vm_state eq "poweredOn";
-				$output .= $vm->name . "(" . $vm_state_strings{$vm_state} . "), ";
+			foreach my $vm (@$vm_views)
+			{
+				my $vm_state = $vm_state_strings{$vm->runtime->powerState->val};
+				if ($vm_state eq "UP")
+				{
+					$up++;
+					$output .= $vm->name . "(OK), ";
+				}
+				else
+				{
+					$output = $vm->name . "(" . $vm_state . "), " . $output;
+				}
 			}
 
 			chop($output);
@@ -1526,7 +1548,8 @@ sub host_runtime_info
 		die "Runtime error\n" if (!defined($vm_views));
 		if (@$vm_views)
 		{
-			foreach my $vm (@$vm_views) {
+			foreach my $vm (@$vm_views)
+			{
 				$up += $vm->runtime->powerState->val eq "poweredOn";
 			}
 			$output = $up . "/" . @$vm_views . " VMs up";
@@ -1595,15 +1618,18 @@ sub host_runtime_info
 		{
 			$output .= "All $SensorCount health checks are Green, ";
 		}
+		$np->add_perfdata(label => "health_issues", value => $AlertCount);
 
 		my $issues = $host_view->configIssue;
 		if (defined($issues))
 		{
 			$output .= @$issues . " config issue(s)";
+			$np->add_perfdata(label => "config_issues", value => "" . @$issues);
 		}
 		else
 		{
 			$output .= "no config issues";
+			$np->add_perfdata(label => "config_issues", value => 0);
 		}
 	}
 
@@ -2327,8 +2353,9 @@ sub vm_runtime_info
 		elsif (uc($subcommand) eq "STATE")
 		{
 			my %vm_state_strings = ("poweredOn" => "UP", "poweredOff" => "DOWN", "suspended" => "SUSPENDED");
-			$output = "\"$vmname\" run state=" . $vm_state_strings{$runtime->powerState->val};
-			$res = OK if ($runtime->powerState->val eq "poweredOn");
+			my $state = $vm_state_strings{$runtime->powerState->val};
+			$output = "\"$vmname\" run state=" . $state;
+			$res = OK if ($state eq "UP");
 		}
 		elsif (uc($subcommand) eq "STATUS")
 		{
@@ -2344,14 +2371,41 @@ sub vm_runtime_info
 		elsif (uc($subcommand) eq "GUEST")
 		{
 			my %vm_guest_state = ("running" => "Running", "notRunning" => "Not running", "shuttingDown" => "Shutting down", "resetting" => "Resetting", "standby" => "Standby", "unknown" => "Unknown");
-			$output = "\"$vmname\" guest state=" . $vm_guest_state{$vm_view->guest->guestState};
-			$res = OK if ($vm_view->guest->guestState eq "running");
+			my $state = $vm_guest_state{$vm_view->guest->guestState};
+			$output = "\"$vmname\" guest state=" . $state;
+			$res = OK if ($state eq "Running");
 		}
 		elsif (uc($subcommand) eq "TOOLS")
 		{
-			my %vm_tools_status = ("toolsNotInstalled" => "Not installed", "toolsNotRunning" => "Not running", "toolsOk" => "OK", "toolsOld" => "Old");
-			$output = "\"$vmname\" tools status=" . $vm_tools_status{$vm_view->guest->toolsStatus->val};
-			$res = OK if ($vm_view->guest->toolsStatus->val eq "toolsOk");
+			my $tools_status;
+			my $tools_runstate;
+			my $tools_version;
+			$tools_runstate = $vm_view->guest->toolsRunningStatus if (exists($vm_view->guest->{toolsRunningStatus}) && defined($vm_view->guest->toolsRunningStatus));
+			$tools_version = $vm_view->guest->toolsVersionStatus if (exists($vm_view->guest->{toolsVersionStatus}) && defined($vm_view->guest->toolsVersionStatus));
+
+			if (defined($tools_runstate) || defined($tools_version))
+			{
+				my %vm_tools_strings = ("guestToolsCurrent" => "Newest", "guestToolsNeedUpgrade" => "Old", "guestToolsNotInstalled" => "Not installed", "guestToolsUnmanaged" => "Unmanaged", "guestToolsExecutingScripts" => "Starting", "guestToolsNotRunning" => "Not running", "guestToolsRunning" => "Running");
+				$tools_status = $vm_tools_strings{$tools_runstate} . "-" if (defined($tools_runstate));
+				$tools_status .= $vm_tools_strings{$tools_version} . "-" if (defined($tools_version));
+				chop($tools_status);
+				$res = OK if ($tools_status eq "Running-Newest");
+			}
+			else
+			{
+				my %vm_tools_strings = ("toolsNotInstalled" => "Not installed", "toolsNotRunning" => "Not running", "toolsOk" => "OK", "toolsOld" => "Old", "notDefined" => "Not defined");
+				$tools_status = $vm_view->guest->toolsStatus;
+				if (defined($tools_status))
+				{
+					$tools_status = $vm_tools_strings{$tools_status->val};
+				}
+				else
+				{
+					$tools_status = $vm_tools_strings{"notDefined"};
+				}
+				$res = OK if ($tools_status eq "OK");
+			}
+			$output = "\"$vmname\" tools status=" . $tools_status;
 		}
 		elsif (uc($subcommand) eq "ISSUES")
 		{
@@ -2420,6 +2474,7 @@ sub return_cluster_DRS_recommendations {
 		@clusters = @$cluster;
 	}
 
+	my $rec_count = 0;
 	foreach my $cluster_view (@clusters)
 	{
 		my ($recommends) = $cluster_view->recommendation;
@@ -2431,6 +2486,7 @@ sub return_cluster_DRS_recommendations {
 				$value = $recommend->rating if ($recommend->rating > $value);
 				$output .= "(" . $recommend->rating . ") " . $recommend->reason . " : " . $recommend->reasonText . "; ";
 			}
+			$rec_count += @$recommends;
 			$res = $np->check_threshold(check => $value);
 		}
 	}
@@ -2443,6 +2499,8 @@ sub return_cluster_DRS_recommendations {
 	{
 		$output = "No recommendations";
 	}
+
+	$np->add_perfdata(label => "recommendations", value => $rec_count);
 
 	return ($res, $output);
 }
@@ -3007,9 +3065,16 @@ sub dc_runtime_info
 			$output = '';
 
 			foreach my $vm (@$vm_views) {
-				my $vm_state = $vm->runtime->powerState->val;
-				$up += $vm_state eq "poweredOn";
-				$output .= $vm->name . "(" . $vm_state_strings{$vm_state} . "), ";
+				my $vm_state = $vm_state_strings{$vm->runtime->powerState->val};
+				if ($vm_state eq "UP")
+				{
+					$up++;
+					$output .= $vm->name . "(UP), ";
+				}
+				else
+				{
+					$output = $vm->name . "(" . $vm_state . "), " . $output;
+				}
 			}
 
 			chop($output);
@@ -3031,10 +3096,15 @@ sub dc_runtime_info
 
 			foreach my $host (@$host_views) {
 				$host->update_view_data(['name', 'runtime.powerState']);
-				my $host_state = $host->get_property('runtime.powerState')->val;
-				$up += $host_state eq "poweredOn";
-				$unknown += $host_state eq "unknown";
-				$output .= $host->name . "(" . $host_state_strings{$host_state} . "), ";
+				my $host_state = $host_state_strings{$host->get_property('runtime.powerState')->val};
+				$unknown += $host_state eq "UNKNOWN";
+				if ($host_state eq "UP") {
+					$up++;
+					$output .= $host->name . "(UP), ";
+				} else
+				{
+					$output = $host->name . "(" . $host_state . "), " . $output;
+				}
 			}
 
 			chop($output);
@@ -3139,6 +3209,7 @@ sub dc_runtime_info
 		elsif (uc($subcommand) eq "ISSUES")
 		{
 			my $issues = $dc_view->configIssue;
+			my $issues_count = 0;
 
 			$output = '';
 			if (defined($issues))
@@ -3151,6 +3222,7 @@ sub dc_runtime_info
 						next if ($blacklist =~ m/(^|\s|\t|,)\Q$name\E($|\s|\t|,)/);
 					}
 					$output .= format_issue($_) . "; ";
+					$issues_count++;
 				}
 			}
 
@@ -3159,6 +3231,7 @@ sub dc_runtime_info
 				$res = OK;
 				$output = 'No config issues';
 			}
+			$np->add_perfdata(label => "issues", value => $issues_count);
 		}
 		else
 		{
@@ -3179,13 +3252,13 @@ sub dc_runtime_info
 			foreach my $vm (@$vm_views) {
 				$up += $vm->get_property('runtime.powerState')->val eq "poweredOn";
 			}
-			$np->add_perfdata(label => "vmcount", value => $up, uom => 'units', threshold => $np->threshold);
 			$output = $up . "/" . @$vm_views . " VMs up, ";
 		}
 		else
 		{
 			$output = "No VMs installed, ";
 		}
+		$np->add_perfdata(label => "vmcount", value => $up, uom => 'units', threshold => $np->threshold);
 
 		$res = OK;
 		$output .= "overall status=" . $dc_view->overallStatus->val . ", " if (defined($dc_view->overallStatus));
@@ -3193,10 +3266,12 @@ sub dc_runtime_info
 		if (defined($issues))
 		{
 			$output .= @$issues . " config issue(s)";
+			$np->add_perfdata(label => "health_issues", value => "" . @$issues);
 		}
 		else
 		{
 			$output .= "no config issues";
+			$np->add_perfdata(label => "health_issues", value => 0);
 		}
 	}
 
