@@ -169,7 +169,7 @@ done
 
 # CPU Utilization Statistics Unix Plateform ( Linux,AIX,Solaris are supported )
 case `uname` in
-	Linux ) CPU_REPORT=`iostat -c $INTERVAL_SEC $NUM_REPORT | tr -s ' ' ';' | sed '/^$/d' | tail -1`
+#	Linux ) CPU_REPORT=`iostat -c $INTERVAL_SEC $NUM_REPORT | tr -s ' ' ';' | sed '/^$/d' | tail -1`
 #			CPU_USER=`echo $CPU_REPORT   | cut -d ";" -f 2`
 #			CPU_SYSTEM=`echo $CPU_REPORT | cut -d ";" -f 4`
 #			CPU_IOWAIT=`echo $CPU_REPORT | cut -d ";" -f 5`

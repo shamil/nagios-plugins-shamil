@@ -60,7 +60,7 @@ my $SOCKET = IO::Socket::INET->new(
     PeerPort => $o_port,
     Proto    => "tcp",
     Type     => SOCK_STREAM,
-    Timeout  =>  $TIMEOUT
+    Timeout  => $TIMEOUT
 );
 
 # Exit if connection failed
@@ -74,7 +74,7 @@ my ($intState, $intData, $strOutput, $strPerfData);
 # Run memcached 'stats' command
 print $SOCKET "INFO\n";
 
-# Get number of items
+# Get number of connections
 if ($o_check =~ /^connections$/i) {
     my $line = <$SOCKET>;
     while ($line ne "\r\n") {
@@ -103,7 +103,7 @@ elsif ($o_check =~ /^memory$/i) {
 elsif ($o_check =~ /^uptime$/i) {
     my $line = <$SOCKET>;
     while ($line ne "\r\n") {
-        $intData = $1 if ($line =~ m/uptime_in_days:([0-9]+)/);  # Get uptime seconds
+        $intData = $1 if ($line =~ m/uptime_in_days:([0-9]+)/);  # Get uptime in days
         $line = <$SOCKET>;
     }
 

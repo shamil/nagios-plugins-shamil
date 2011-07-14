@@ -84,7 +84,7 @@ if (!$SOCKET) {
 my ($intState, $intData, $strOutput, $strPerfData);
 
 # Run memcached 'stats' command
-print $SOCKET "stats\n";
+print $SOCKET "STATS\n";
 
 # Get number of items
 if ($o_check =~ /^items$/i) {

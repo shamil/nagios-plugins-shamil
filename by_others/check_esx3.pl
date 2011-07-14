@@ -5,7 +5,7 @@
 # License: GPL
 # Copyright (c) 2008 op5 AB
 # Author: Kostyantyn Hushchyn <dev@op5.com>
-# Contributor(s): Patrick Müller, Jeremy Martin, Eric Jonsson, stumpr, John Cavanaugh, Libor Klepac, maikmayers, Steffen Poulsen
+# Contributor(s): Patrick Müller, Jeremy Martin, Eric Jonsson, stumpr, John Cavanaugh, Libor Klepac, maikmayers, Steffen Poulsen, Mark Elliott
 #
 # For direct contact with any of the op5 developers send a mail to
 # dev@op5.com
@@ -94,7 +94,7 @@ eval {
 } or Nagios::Plugin::Functions::nagios_exit(UNKNOWN, "Missing perl module VMware::VIRuntime. Download and install \'VMware Infrastructure (VI) Perl Toolkit\', available at http://www.vmware.com/download/sdk/\n $perl_module_instructions");
 
 $PROGNAME = basename($0);
-$VERSION = '0.4.0';
+$VERSION = '0.5.0';
 
 my $np = Nagios::Plugin->new(
   usage => "Usage: %s -D <data_center> | -H <host_name> [ -N <vm_name> ]\n"
@@ -136,7 +136,8 @@ my $np = Nagios::Plugin->new(
     . "            ^ all runtime info\n"
     . "    VM specific :\n"
     . "        * cpu - shows cpu info\n"
-    . "            + wait - CPU wait in ms\n"
+    . "            + wait - CPU wait time in ms\n"
+    . "            + ready - CPU ready time in ms\n"
     . "        * mem - shows mem info\n"
     . "            + swapin - swapin mem usage in MB\n"
     . "            + swapout - swapout mem usage in MB\n"
@@ -200,6 +201,13 @@ $np->add_arg(
   spec => 'host|H=s',
   help => "-H, --host=<hostname>\n"
     . '   ESX or ESXi hostname.',
+  required => 0,
+);
+
+$np->add_arg(
+  spec => 'cluster|C=s',
+  help => "-C, --cluster=<clustername>\n"
+    . '   ESX or ESXi clustername.',
   required => 0,
 );
 
@@ -296,6 +304,7 @@ $np->add_arg(
 $np->getopts;
 
 my $host = $np->opts->host;
+my $cluster = $np->opts->cluster;
 my $datacenter = $np->opts->datacenter;
 my $vmname = $np->opts->name;
 my $username = $np->opts->username;
@@ -367,49 +376,52 @@ eval
 		$np->nagios_exit(CRITICAL, "No Host or Datacenter specified");
 	}
 
+	$host_address .= ":443" if (index($host_address, ":") == -1);
+	$host_address = "https://" . $host_address . "/sdk/webService";
+
 	if (defined($sessionfile) and -e $sessionfile)
 	{
 		Opts::set_option("sessionfile", $sessionfile);
 		eval {
-			Util::connect("https://" . $host_address . "/sdk/webService", $username, $password);
+			Util::connect($host_address, $username, $password);
+			die "Connected host doesn't match reqested once\n" if (Opts::get_option("url") ne $host_address);
 		};
 		if ($@) {
-			die $@ if (!defined($username) || !defined($password) && !defined($authfile));
 			Opts::set_option("sessionfile", undef);
-			Util::connect("https://" . $host_address . "/sdk/webService", $username, $password);
+			Util::connect($host_address, $username, $password);
 		}
 	}
 	else
 	{
-		Util::connect("https://" . $host_address . "/sdk/webService", $username, $password);
+		Util::connect($host_address, $username, $password);
 	}
 
 	if (defined($sessionfile))
 	{
-		Vim::save_session(session_file=>$sessionfile);
+		Vim::save_session(session_file => $sessionfile);
 	}
-
+	$command = uc($command);
 	if (defined($vmname))
 	{
-		if (uc($command) eq "CPU")
+		if ($command eq "CPU")
 		{
-			($result, $output) = vm_cpu_info($vmname, $np, $subcommand);
+			($result, $output) = vm_cpu_info($vmname, $np, uc($subcommand));
 		}
-		elsif (uc($command) eq "MEM")
+		elsif ($command eq "MEM")
 		{
-			($result, $output) = vm_mem_info($vmname, $np, $subcommand);
+			($result, $output) = vm_mem_info($vmname, $np, uc($subcommand));
 		}
-		elsif (uc($command) eq "NET")
+		elsif ($command eq "NET")
 		{
-			($result, $output) = vm_net_info($vmname, $np, $subcommand);
+			($result, $output) = vm_net_info($vmname, $np, uc($subcommand));
 		}
-		elsif (uc($command) eq "IO")
+		elsif ($command eq "IO")
 		{
-			($result, $output) = vm_disk_io_info($vmname, $np, $subcommand);
+			($result, $output) = vm_disk_io_info($vmname, $np, uc($subcommand));
 		}
-		elsif (uc($command) eq "RUNTIME")
+		elsif ($command eq "RUNTIME")
 		{
-			($result, $output) = vm_runtime_info($vmname, $np, $subcommand);
+			($result, $output) = vm_runtime_info($vmname, $np, uc($subcommand));
 		}
 		else
 		{
@@ -421,37 +433,37 @@ eval
 	{
 		my $esx;
 		$esx = {name => $host} if (defined($datacenter));
-		if (uc($command) eq "CPU")
+		if ($command eq "CPU")
 		{
-			($result, $output) = host_cpu_info($esx, $np, $subcommand);
+			($result, $output) = host_cpu_info($esx, $np, uc($subcommand), $addopts);
 		}
-		elsif (uc($command) eq "MEM")
+		elsif ($command eq "MEM")
 		{
-			($result, $output) = host_mem_info($esx, $np, $subcommand, $addopts);
+			($result, $output) = host_mem_info($esx, $np, uc($subcommand), $addopts);
 		}
-		elsif (uc($command) eq "NET")
+		elsif ($command eq "NET")
 		{
-			($result, $output) = host_net_info($esx, $np, $subcommand);
+			($result, $output) = host_net_info($esx, $np, uc($subcommand));
 		}
-		elsif (uc($command) eq "IO")
+		elsif ($command eq "IO")
 		{
-			($result, $output) = host_disk_io_info($esx, $np, $subcommand);
+			($result, $output) = host_disk_io_info($esx, $np, uc($subcommand));
 		}
-		elsif (uc($command) eq "VMFS")
+		elsif ($command eq "VMFS")
 		{
 			($result, $output) = host_list_vm_volumes_info($esx, $np, $subcommand, $blacklist, $percc || $percw, $addopts);
 		}
-		elsif (uc($command) eq "RUNTIME")
+		elsif ($command eq "RUNTIME")
 		{
-			($result, $output) = host_runtime_info($esx, $np, $subcommand, $blacklist);
+			($result, $output) = host_runtime_info($esx, $np, uc($subcommand), $blacklist);
 		}
-		elsif (uc($command) eq "SERVICE")
+		elsif ($command eq "SERVICE")
 		{
 			($result, $output) = host_service_info($esx, $np, $subcommand);
 		}
-		elsif (uc($command) eq "STORAGE")
+		elsif ($command eq "STORAGE")
 		{
-			($result, $output) = host_storage_info($esx, $np, $subcommand, $blacklist);
+			($result, $output) = host_storage_info($esx, $np, uc($subcommand), $blacklist);
 		}
 		else
 		{
@@ -459,37 +471,65 @@ eval
 			$result = CRITICAL;
 		}
 	}
+	elsif (defined($cluster))
+	{
+		if ($command eq "CPU")
+		{
+			($result, $output) = cluster_cpu_info($cluster, $np, uc($subcommand));
+		}
+		elsif ($command eq "MEM")
+		{
+			($result, $output) = cluster_mem_info($cluster, $np, uc($subcommand), $addopts);
+		}
+		elsif ($command eq "CLUSTER")
+		{
+			($result, $output) = cluster_cluster_info($cluster, $np, uc($subcommand));
+		}
+		elsif ($command eq "VMFS")
+		{
+			($result, $output) = cluster_list_vm_volumes_info($cluster, $np, $subcommand, $blacklist, $percc || $percw, $addopts);
+		}
+		elsif ($command eq "RUNTIME")
+		{
+			($result, $output) = cluster_runtime_info($cluster, $np, uc($subcommand));
+		}
+		else
+		{
+			$output = "Unknown CLUSTER command\n" . $np->opts->_help;
+			$result = CRITICAL;
+		}
+	}
 	else
 	{
-		if (uc($command) eq "RECOMMENDATIONS")
+		if ($command eq "RECOMMENDATIONS")
 		{
 			my $cluster_name;
 			$cluster_name = {name => $subcommand} if (defined($subcommand));
 			($result, $output) = return_cluster_DRS_recommendations($np, $cluster_name);
 		}
-		elsif (uc($command) eq "CPU")
+		elsif ($command eq "CPU")
 		{
-			($result, $output) = dc_cpu_info($np, $subcommand);
+			($result, $output) = dc_cpu_info($np, uc($subcommand), $addopts);
 		}
-		elsif (uc($command) eq "MEM")
+		elsif ($command eq "MEM")
 		{
-			($result, $output) = dc_mem_info($np, $subcommand);
+			($result, $output) = dc_mem_info($np, uc($subcommand), $addopts);
 		}
-		elsif (uc($command) eq "NET")
+		elsif ($command eq "NET")
 		{
-			($result, $output) = dc_net_info($np, $subcommand);
+			($result, $output) = dc_net_info($np, uc($subcommand));
 		}
-		elsif (uc($command) eq "IO")
+		elsif ($command eq "IO")
 		{
-			($result, $output) = dc_disk_io_info($np, $subcommand);
+			($result, $output) = dc_disk_io_info($np, uc($subcommand));
 		}
-		elsif (uc($command) eq "VMFS")
+		elsif ($command eq "VMFS")
 		{
 			($result, $output) = dc_list_vm_volumes_info($np, $subcommand, $blacklist, $percc || $percw, $addopts);
 		}
-		elsif (uc($command) eq "RUNTIME")
+		elsif ($command eq "RUNTIME")
 		{
-			($result, $output) = dc_runtime_info($np, $subcommand, $blacklist);
+			($result, $output) = dc_runtime_info($np, uc($subcommand), $blacklist);
 		}
 		else
 		{
@@ -593,7 +633,7 @@ sub return_host_performance_values {
 sub return_host_vmware_performance_values {
 	my $values;
 	my $vmname = shift(@_);
-	my $vm_view = Vim::find_entity_views(view_type => 'VirtualMachine', filter => {name => $vmname}, properties => [ 'name', 'runtime.powerState' ]);
+	my $vm_view = Vim::find_entity_views(view_type => 'VirtualMachine', filter => {name => "$vmname"}, properties => [ 'name', 'runtime.powerState' ]);
 	die "Runtime error\n" if (!defined($vm_view));
 	die "VMware machine \"" . $vmname . "\" does not exist\n" if (!@$vm_view);
 	die "VMware machine \"" . $vmname . "\" is not running. Current state is \"" . $$vm_view[0]->get_property('runtime.powerState')->val . "\"\n" if ($$vm_view[0]->get_property('runtime.powerState')->val ne "poweredOn");
@@ -614,6 +654,18 @@ sub return_dc_performance_values {
 	return ($host_views, $values);
 }
 
+sub return_cluster_performance_values {
+	my $values;
+	my $cluster_name = shift(@_);
+	my $cluster_view = Vim::find_entity_views(view_type => 'ClusterComputeResource', filter => { name => "$cluster_name" }, properties => [ 'name' ]); # Added properties named argument.
+	die "Runtime error\n" if (!defined($cluster_view));
+	die "Cluster \"" . $cluster_name . "\" does not exist\n" if (!@$cluster_view);
+	$values = generic_performance_values($cluster_view, @_);
+
+	return undef if ($@);
+	return $values;
+}
+
 sub simplify_number
 {
 	my ($number, $cnt) = @_;
@@ -623,9 +675,9 @@ sub simplify_number
 
 sub convert_number
 {
-	my ($number) = shift(@_);
-	$number =~ s/\,/\./;
-	return $number;
+	my @vals = split(/,/, shift(@_));
+	return shift(@vals) if ($vals[-1] < 0);
+	return pop(@vals);
 }
 
 sub check_percantage
@@ -694,34 +746,148 @@ sub format_issue {
 
 	return $output;
 }
+
+sub datastore_volumes_info
+{
+	my ($datastore, $np, $subcommand, $blacklist, $perc, $addopts) = @_;
+
+	my $res = OK;
+	my $output = '';
+
+	my $usedflag;
+	my $briefflag;
+	my $regexpflag;
+	my $blackregexpflag;
+	$usedflag = $addopts =~ m/(^|\s|\t|,)\Qused\E($|\s|\t|,)/ if (defined($addopts));
+	$briefflag = $addopts =~ m/(^|\s|\t|,)\Qbrief\E($|\s|\t|,)/ if (defined($addopts));
+	$regexpflag = $addopts =~ m/(^|\s|\t|,)\Qregexp\E($|\s|\t|,)/ if (defined($addopts));
+	$blackregexpflag = $addopts =~ m/(^|\s|\t|,)\Qblacklistregexp\E($|\s|\t|,)/ if (defined($addopts));
+
+	die "Blacklist is supported only in generic check or regexp subcheck\n" if (defined($subcommand) && defined($blacklist) && !defined($regexpflag));
+
+	if (defined($regexpflag) && defined($subcommand))
+	{
+		eval
+		{
+			qr{$subcommand};
+		};
+		if ($@)
+		{
+			$@ =~ s/ at.*line.*\.//;
+			die $@;
+		}
+	}
+
+	my $state;
+	foreach my $ref_store (@{$datastore})
+	{
+		my $store = Vim::get_view(mo_ref => $ref_store, properties => ['summary', 'info']);
+		my $name = $store->summary->name;
+		if (!defined($subcommand) || ($name eq $subcommand) || (defined($regexpflag) && $name =~ /$subcommand/))
+		{
+			if (defined($blacklist))
+			{
+				next if ($blackregexpflag?$name =~ /$blacklist/:$blacklist =~ m/(^|\s|\t|,)\Q$name\E($|\s|\t|,)/);
+			}
+
+			if ($store->summary->accessible)
+			{
+				my $value1 = simplify_number(convert_number($store->summary->freeSpace) / 1024 / 1024);
+				my $value2 = convert_number($store->summary->capacity);
+				$value2 = simplify_number(convert_number($store->info->freeSpace) / $value2 * 100) if ($value2 > 0);
+
+				if ($usedflag)
+				{
+					$value1 = simplify_number(convert_number($store->summary->capacity) / 1024 / 1024) - $value1;
+					$value2 = 100 - $value2;
+				}
+
+				$state = $np->check_threshold(check => $perc?$value2:$value1);
+				$res = Nagios::Plugin::Functions::max_state($res, $state);
+				$np->add_perfdata(label => $name, value => $perc?$value2:$value1, uom => $perc?'%':'MB', threshold => $np->threshold);
+				$output .= $name . "=". $value1 . " MB (" . $value2 . "%), " if (!$briefflag || $state != OK);
+			}
+			else
+			{
+				$res = CRITICAL;
+				$output .= $name . " is not accessible, ";
+			}
+			last if (!$regexpflag && defined($subcommand) && ($name eq $subcommand));
+			$blacklist .= $blackregexpflag?"|^$name\$":",$name";
+		}
+	}
+
+	if ($output)
+	{
+		chop($output);
+		chop($output);
+		$output = "Storages : " . $output;
+	}
+	else
+	{
+		$res = WARNING;
+		$output = defined($subcommand)?defined($regexpflag)? "No matching volumes for regexp \"$subcommand\" found":"No volume named \"$subcommand\" found":"There are no volumes";
+	}
+
+	return ($res, $output);
+}
+
 #=====================================================================| HOST |============================================================================#
 
 sub host_cpu_info
 {
-	my ($host, $np, $subcommand) = @_;
+	my ($host, $np, $subcommand, $addopts) = @_;
 
 	my $res = CRITICAL;
 	my $output = 'HOST CPU Unknown error';
 
+	my $quickStats;
+	$quickStats = $addopts =~ m/(^|\s|\t|,)\Qquickstats\E($|\s|\t|,)/ if (defined($addopts));
+
 	if (defined($subcommand))
 	{
-		if (uc($subcommand) eq "USAGE")
+		if ($subcommand eq "USAGE")
 		{
-			$values = return_host_performance_values($host, 'cpu', ('usage.average'));
-			if (defined($values))
+			my $value;
+			if (defined($quickStats))
 			{
-				my $value = simplify_number(convert_number($$values[0][0]->value) * 0.01);
+				my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'runtime.inMaintenanceMode', 'summary.hardware', 'summary.quickStats']);
+				die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
+				die {msg => ("NOTICE: \"" . $host_view->name . "\" is in maintenance mode, check skipped\n"), code => OK} if (uc($host_view->get_property('runtime.inMaintenanceMode')) eq "TRUE");
+				$values = $host_view->get_property('summary.quickStats');
+				my $hardinfo = $host_view->get_property('summary.hardware');
+				$value = simplify_number($values->overallCpuUsage / ($hardinfo->numCpuCores * $hardinfo->cpuMhz) * 100) if exists($values->{overallCpuUsage}) && defined($hardinfo);
+			}
+			else
+			{
+				$values = return_host_performance_values($host, 'cpu', ('usage.average'));
+				$value = simplify_number(convert_number($$values[0][0]->value) * 0.01) if (defined($values));
+			}
+			if (defined($value))
+			{
 				$np->add_perfdata(label => "cpu_usage", value => $value, uom => '%', threshold => $np->threshold);
 				$output = "cpu usage=" . $value . " %"; 
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "USAGEMHZ")
+		elsif ($subcommand eq "USAGEMHZ")
 		{
-			$values = return_host_performance_values($host, 'cpu', ('usagemhz.average'));
-			if (defined($values))
+			my $value;
+			if (defined($quickStats))
 			{
-				my $value = simplify_number(convert_number($$values[0][0]->value));
+				my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'runtime.inMaintenanceMode', 'summary.quickStats']);
+				die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
+				die {msg => ("NOTICE: \"" . $host_view->name . "\" is in maintenance mode, check skipped\n"), code => OK} if (uc($host_view->get_property('runtime.inMaintenanceMode')) eq "TRUE");
+				$values = $host_view->get_property('summary.quickStats');
+				$value = simplify_number($values->overallCpuUsage) if exists($values->{overallCpuUsage});
+			}
+			else
+			{
+				$values = return_host_performance_values($host, 'cpu', ('usagemhz.average'));
+				$value = simplify_number(convert_number($$values[0][0]->value)) if (defined($values));
+			}
+			if (defined($value))
+			{
 				$np->add_perfdata(label => "cpu_usagemhz", value => $value, uom => 'Mhz', threshold => $np->threshold);
 				$output = "cpu usagemhz=" . $value . " MHz";
 				$res = $np->check_threshold(check => $value);
@@ -735,11 +901,31 @@ sub host_cpu_info
 	}
 	else
 	{
-		$values = return_host_performance_values($host, 'cpu', ('usagemhz.average', 'usage.average'));
-		if (defined($values))
+		my $value1;
+		my $value2;
+		if (defined($quickStats))
 		{
-			my $value1 = simplify_number(convert_number($$values[0][0]->value));
-			my $value2 = simplify_number(convert_number($$values[0][1]->value) * 0.01);
+			my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'runtime.inMaintenanceMode', 'summary.hardware', 'summary.quickStats']);
+			die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
+			die {msg => ("NOTICE: \"" . $host_view->name . "\" is in maintenance mode, check skipped\n"), code => OK} if (uc($host_view->get_property('runtime.inMaintenanceMode')) eq "TRUE");
+			$values = $host_view->get_property('summary.quickStats');
+			my $hardinfo = $host_view->get_property('summary.hardware');
+			if (exists($values->{overallCpuUsage}) && defined($hardinfo))
+			{
+				$value1 = simplify_number($values->overallCpuUsage);
+				$value2 = simplify_number($values->overallCpuUsage / ($hardinfo->numCpuCores * $hardinfo->cpuMhz) * 100);
+			}
+		}
+		else
+		{
+			$values = return_host_performance_values($host, 'cpu', ('usagemhz.average', 'usage.average'));
+			if ($values) {
+				$value1 = simplify_number(convert_number($$values[0][0]->value));
+				$value2 = simplify_number(convert_number($$values[0][1]->value) * 0.01);
+			}
+		}
+		if (defined($value1) && defined($value2))
+		{
 			$np->add_perfdata(label => "cpu_usagemhz", value => $value1, uom => 'Mhz', threshold => $np->threshold);
 			$np->add_perfdata(label => "cpu_usage", value => $value2, uom => '%', threshold => $np->threshold);
 			$res = OK;
@@ -752,41 +938,66 @@ sub host_cpu_info
 
 sub host_mem_info
 {
-	my ($host, $np, $subcommand) = @_;
+	my ($host, $np, $subcommand, $addopts) = @_;
 
 	my $res = CRITICAL;
 	my $output = 'HOST MEM Unknown error';
 
-	my $swaplist;
-	my $boollonedlist;
-	$swaplist = $addopts =~ m/(^|\s|\t|,)\Qswaplist\E($|\s|\t|,)/ if (defined($addopts));
-	$boollonedlist = $addopts =~ m/(^|\s|\t|,)\Qballoonedlist\E($|\s|\t|,)/ if (defined($addopts));
+	my $quickStats;
+	my $outputlist;
+	$quickStats = $addopts =~ m/(^|\s|\t|,)\Qquickstats\E($|\s|\t|,)/ if (defined($addopts));
+	$outputlist = $addopts =~ m/(^|\s|\t|,)\Qlistvm\E($|\s|\t|,)/ if (defined($addopts));
 
 	if (defined($subcommand))
 	{
-		if (uc($subcommand) eq "USAGE")
+		if ($subcommand eq "USAGE")
 		{
-			$values = return_host_performance_values($host, 'mem', ('usage.average'));
-			if (defined($values))
+			my $value;
+			if (defined($quickStats))
 			{
-				my $value = simplify_number(convert_number($$values[0][0]->value) * 0.01);
+				my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'runtime.inMaintenanceMode', 'summary.hardware', 'summary.quickStats']);
+				die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
+				die {msg => ("NOTICE: \"" . $host_view->name . "\" is in maintenance mode, check skipped\n"), code => OK} if (uc($host_view->get_property('runtime.inMaintenanceMode')) eq "TRUE");
+				$values = $host_view->get_property('summary.quickStats');
+				my $hardinfo = $host_view->get_property('summary.hardware');
+				$value = simplify_number($values->overallMemoryUsage / ($hardinfo->memorySize / 1024 / 1024) * 100) if exists($values->{overallMemoryUsage}) && defined($hardinfo);
+			}
+			else
+			{
+				$values = return_host_performance_values($host, 'mem', ('usage.average'));
+				$value = simplify_number(convert_number($$values[0][0]->value) * 0.01) if (defined($values));
+			}
+			if (defined($value))
+			{
 				$np->add_perfdata(label => "mem_usage", value => $value, uom => '%', threshold => $np->threshold);
 				$output = "mem usage=" . $value . " %"; 
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "USAGEMB")
+		elsif ($subcommand eq "USAGEMB")
 		{
-			$values = return_host_performance_values($host, 'mem', ('consumed.average'));
-			if (defined($values))
+			my $value;
+			if (defined($quickStats))
 			{
-				my $value = simplify_number(convert_number($$values[0][0]->value) / 1024);
+				my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'runtime.inMaintenanceMode', 'summary.quickStats']);
+				die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
+				die {msg => ("NOTICE: \"" . $host_view->name . "\" is in maintenance mode, check skipped\n"), code => OK} if (uc($host_view->get_property('runtime.inMaintenanceMode')) eq "TRUE");
+				$values = $host_view->get_property('summary.quickStats');
+				$value = simplify_number($values->overallMemoryUsage) if exists($values->{overallMemoryUsage});
+			}
+			else
+			{
+				$values = return_host_performance_values($host, 'mem', ('consumed.average'));
+				$value = simplify_number(convert_number($$values[0][0]->value) / 1024) if (defined($values));
+			}
+			if (defined($value))
+			{
 				$np->add_perfdata(label => "mem_usagemb", value => $value, uom => 'MB', threshold => $np->threshold);
 				$output = "mem usage=" . $value . " MB";
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "SWAP")
+		elsif ($subcommand eq "SWAP")
 		{
 			my $host_view;
 			($host_view, $values) = return_host_performance_values($host, 'mem', ('swapused.average'));
@@ -796,7 +1007,7 @@ sub host_mem_info
 				$np->add_perfdata(label => "mem_swap", value => $value, uom => 'MB', threshold => $np->threshold);
 				$output = "swap usage=" . $value . " MB: ";
 				$res = $np->check_threshold(check => $value);
-				if ($res != OK && $swaplist)
+				if ($res != OK && $outputlist)
 				{
 					my $vm_views = Vim::find_entity_views(view_type => 'VirtualMachine', begin_entity => $$host_view[0], properties => ['name', 'runtime.powerState']);
 					die "Runtime error\n" if (!defined($vm_views));
@@ -819,7 +1030,7 @@ sub host_mem_info
 				chop($output);
 			}
 		}
-		elsif (uc($subcommand) eq "OVERHEAD")
+		elsif ($subcommand eq "OVERHEAD")
 		{
 			$values = return_host_performance_values($host, 'mem', ('overhead.average'));
 			if (defined($values))
@@ -830,7 +1041,7 @@ sub host_mem_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "OVERALL")
+		elsif ($subcommand eq "OVERALL")
 		{
 			$values = return_host_performance_values($host, 'mem', ('consumed.average', 'overhead.average'));
 			if (defined($values))
@@ -841,7 +1052,7 @@ sub host_mem_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "MEMCTL")
+		elsif ($subcommand eq "MEMCTL")
 		{
 			my $host_view;
 			($host_view, $values) = return_host_performance_values($host, 'mem', ('vmmemctl.average'));
@@ -851,7 +1062,7 @@ sub host_mem_info
 				$np->add_perfdata(label => "mem_memctl", value => $value, uom => 'MB', threshold => $np->threshold);
 				$output = "memctl=" . $value . " MB: ";
 				$res = $np->check_threshold(check => $value);
-				if ($res != OK && $boollonedlist)
+				if ($res != OK && $outputlist)
 				{
 					my $vm_views = Vim::find_entity_views(view_type => 'VirtualMachine', begin_entity => $$host_view[0], properties => ['name', 'runtime.powerState']);
 					die "Runtime error\n" if (!defined($vm_views));
@@ -912,7 +1123,7 @@ sub host_net_info
 	
 	if (defined($subcommand))
 	{
-		if (uc($subcommand) eq "USAGE")
+		if ($subcommand eq "USAGE")
 		{
 			$values = return_host_performance_values($host, 'net', ('usage.average:*'));
 			if (defined($values))
@@ -923,7 +1134,7 @@ sub host_net_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "RECEIVE")
+		elsif ($subcommand eq "RECEIVE")
 		{
 			$values = return_host_performance_values($host, 'net', ('received.average:*'));
 			if (defined($values))
@@ -934,7 +1145,7 @@ sub host_net_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "SEND")
+		elsif ($subcommand eq "SEND")
 		{
 			$values = return_host_performance_values($host, 'net', ('transmitted.average:*'));
 			if (defined($values))
@@ -945,7 +1156,7 @@ sub host_net_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "NIC")
+		elsif ($subcommand eq "NIC")
 		{
 			my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'configManager.networkSystem', 'runtime.inMaintenanceMode']);
 			die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
@@ -1027,9 +1238,9 @@ sub host_net_info
 			$res = OK;
 			$output = "net receive=" . $value1 . " KBps, send=" . $value2 . " KBps, ";
 		}
-
-		$$host_view[0]->update_view_data(['configManager.networkSystem']);
-		my $network_system = Vim::get_view(mo_ref => $$host_view[0]->get_property('configManager.networkSystem') , properties => ['networkInfo']);
+		$host_view = $$host_view[0];
+		$host_view->update_view_data(['configManager.networkSystem']);
+		my $network_system = Vim::get_view(mo_ref => $host_view->get_property('configManager.networkSystem') , properties => ['networkInfo']);
 		$network_system->update_view_data(['networkInfo']);
 		my $network_config = $network_system->networkInfo;
 		if (defined($network_config))
@@ -1100,7 +1311,7 @@ sub host_disk_io_info
 
 	if (defined($subcommand))
 	{
-		if (uc($subcommand) eq "ABORTED")
+		if ($subcommand eq "ABORTED")
 		{
 			$values = return_host_performance_values($host, 'disk', ('commandsAborted.summation:*'));
 			if (defined($values))
@@ -1111,7 +1322,7 @@ sub host_disk_io_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "RESETS")
+		elsif ($subcommand eq "RESETS")
 		{
 			$values = return_host_performance_values($host, 'disk', ('busResets.summation:*'));
 			if (defined($values))
@@ -1122,7 +1333,7 @@ sub host_disk_io_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "READ")
+		elsif ($subcommand eq "READ")
 		{
 			$values = return_host_performance_values($host, 'disk', ('totalReadLatency.average:*'));
 			if (defined($values))
@@ -1133,7 +1344,7 @@ sub host_disk_io_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "WRITE")
+		elsif ($subcommand eq "WRITE")
 		{
 			$values = return_host_performance_values($host, 'disk', ('totalWriteLatency.average:*'));
 			if (defined($values))
@@ -1144,7 +1355,7 @@ sub host_disk_io_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "KERNEL")
+		elsif ($subcommand eq "KERNEL")
 		{
 			$values = return_host_performance_values($host, 'disk', ('kernelLatency.average:*'));
 			if (defined($values))
@@ -1155,7 +1366,7 @@ sub host_disk_io_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "DEVICE")
+		elsif ($subcommand eq "DEVICE")
 		{
 			$values = return_host_performance_values($host, 'disk', ('deviceLatency.average:*'));
 			if (defined($values))
@@ -1166,7 +1377,7 @@ sub host_disk_io_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "QUEUE")
+		elsif ($subcommand eq "QUEUE")
 		{
 			$values = return_host_performance_values($host, 'disk', ('queueLatency.average:*'));
 			if (defined($values))
@@ -1214,123 +1425,12 @@ sub host_list_vm_volumes_info
 {
 	my ($host, $np, $subcommand, $blacklist, $perc, $addopts) = @_;
 
-	my $res = CRITICAL;
-	my $output = 'HOST VM VOLUMES Unknown error';
+	my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'datastore', 'runtime.inMaintenanceMode']);
+	die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
+	die {msg => ("NOTICE: \"" . $host_view->name . "\" is in maintenance mode, check skipped\n"), code => OK} if (uc($host_view->get_property('runtime.inMaintenanceMode')) eq "TRUE");
+	die "Insufficient rights to access Datastores on the Host\n" if (!defined($host_view->datastore));
 
-	my $usedflag;
-	my $briefflag;
-	$usedflag = $addopts =~ m/(^|\s|\t|,)\Qused\E($|\s|\t|,)/ if (defined($addopts));
-	$briefflag = $addopts =~ m/(^|\s|\t|,)\Qbrief\E($|\s|\t|,)/ if (defined($addopts));
-
-	if (defined($subcommand))
-	{
-		$output = "No volume named \"$subcommand\" found";
-		my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'datastore', 'runtime.inMaintenanceMode']);
-		die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
-		die {msg => ("NOTICE: \"" . $host_view->name . "\" is in maintenance mode, check skipped\n"), code => OK} if (uc($host_view->get_property('runtime.inMaintenanceMode')) eq "TRUE");
-
-		die "Insufficient rights to access Datastores on the Host\n" if (!defined($host_view->datastore));
-		foreach my $ref_store (@{$host_view->datastore})
-		{
-			my $store = Vim::get_view(mo_ref => $ref_store, properties => ['summary', 'info']);
-			if ($store->summary->name eq $subcommand)
-			{
-				if ($store->summary->accessible)
-				{
-					$res = OK;
-					my $value1 = simplify_number(convert_number($store->summary->freeSpace) / 1024 / 1024);
-					my $value2 = simplify_number(convert_number($store->info->freeSpace) / convert_number($store->summary->capacity) * 100);
-
-					if ($usedflag)
-					{
-						$value1 = simplify_number(convert_number($store->summary->capacity) / 1024 / 1024) - $value1;
-						$value2 = 100 - $value2;
-					}
-
-					if ($perc)
-					{
-						$res = $np->check_threshold(check => $value2);
-					}
-					else
-					{
-						$res = $np->check_threshold(check => $value1);
-					}
-					$np->add_perfdata(label => $store->summary->name, value => $perc?$value2:$value1, uom => $perc?'%':'MB', threshold => $np->threshold);
-					$output = $store->summary->name . "=". $value1 . " MB (" . $value2 . "%)";
-				}
-				else
-				{
-					$res = CRITICAL;
-					$output = $store->summary->name . " is not accessible";
-				}
-			}
-		}
-	}
-	else
-	{
-		$res = OK;
-		$output = '';
-		my $host_view = Vim::find_entity_view(view_type => 'HostSystem', filter => $host, properties => ['name', 'datastore', 'runtime.inMaintenanceMode']);
-		die "Host \"" . $$host{"name"} . "\" does not exist\n" if (!defined($host_view));
-		die {msg => ("NOTICE: \"" . $host_view->name . "\" is in maintenance mode, check skipped\n"), code => OK} if (uc($host_view->get_property('runtime.inMaintenanceMode')) eq "TRUE");
-		die "Insufficient rights to access Datastores on the Host\n" if (!defined($host_view->datastore));
-
-		my $state;
-		foreach my $ref_store (@{$host_view->datastore})
-		{
-			my $store = Vim::get_view(mo_ref => $ref_store, properties => ['summary', 'info']);
-			
-			if (defined($blacklist))
-			{
-					my $name = $store->summary->name;
-					next if ($blacklist =~ m/(^|\s|\t|,)\Q$name\E($|\s|\t|,)/);
-			}
-			
-			if ($store->summary->accessible)
-			{
-				my $value1 = simplify_number(convert_number($store->summary->freeSpace) / 1024 / 1024);
-				my $value2 = simplify_number(convert_number($store->info->freeSpace) / convert_number($store->summary->capacity) * 100);
-
-				if ($usedflag)
-				{
-					$value1 = simplify_number(convert_number($store->summary->capacity) / 1024 / 1024) - $value1;
-					$value2 = 100 - $value2;
-				}
-
-				if ($perc)
-				{
-					$state = $np->check_threshold(check => $value2);
-					$res = Nagios::Plugin::Functions::max_state($res, $state);
-				}
-				else
-				{
-					$state = $np->check_threshold(check => $value1);
-					$res = Nagios::Plugin::Functions::max_state($res, $state);
-				}
-
-				$np->add_perfdata(label => $store->summary->name, value => $perc?$value2:$value1, uom => $perc?'%':'MB', threshold => $np->threshold);
-				$output .= $store->summary->name . "=". $value1 . " MB (" . $value2 . "%), " if (!$briefflag || $state != OK);
-			}
-			else
-			{
-				$res = CRITICAL;
-				$output .= $store->summary->name . " is not accessible, ";
-			}
-		}
-
-		chop($output);
-		chop($output);
-		if ($output)
-		{
-			$output = "storages : " . $output;
-		}
-		else
-		{
-			$output = "all values are in normal range";
-		}
-	}
-
-	return ($res, $output);
+	return datastore_volumes_info($host_view->datastore, $np, $subcommand, $blacklist, $perc, $addopts);
 }
 
 sub host_runtime_info
@@ -1348,12 +1448,12 @@ sub host_runtime_info
 
 	if (defined($subcommand))
 	{
-		if (uc($subcommand) eq "CON")
+		if ($subcommand eq "CON")
 		{
 			$output = "connection state=" . $runtime->connectionState->val;
 			$res = OK if (uc($runtime->connectionState->val) eq "CONNECTED");
 		}
-		elsif (uc($subcommand) eq "HEALTH")
+		elsif ($subcommand eq "HEALTH")
 		{
 			my $OKCount = 0;
 			my $AlertCount = 0;
@@ -1467,13 +1567,13 @@ sub host_runtime_info
 
 			$np->add_perfdata(label => "Alerts", value => $AlertCount);
 		}
-		elsif (uc($subcommand) eq "MAINTENANCE")
+		elsif ($subcommand eq "MAINTENANCE")
 		{
 			my %host_maintenance_state = (0 => "no", 1 => "yes");
 			$output = "maintenance=" . $host_maintenance_state{$runtime->inMaintenanceMode};
 			$res = OK;
 		}
-		elsif ((uc($subcommand) eq "LIST") || (uc($subcommand) eq "LISTVM"))
+		elsif (($subcommand eq "LIST") || ($subcommand eq "LISTVM"))
 		{
 			my %vm_state_strings = ("poweredOn" => "UP", "poweredOff" => "DOWN", "suspended" => "SUSPENDED");
 			my $vm_views = Vim::find_entity_views(view_type => 'VirtualMachine', begin_entity => $host_view, properties => ['name', 'runtime']);
@@ -1503,13 +1603,13 @@ sub host_runtime_info
 			$np->add_perfdata(label => "vmcount", value => $up, uom => 'units', threshold => $np->threshold);
 			$res = $np->check_threshold(check => $up) if (defined($np->threshold));
 		}
-		elsif (uc($subcommand) eq "STATUS")
+		elsif ($subcommand eq "STATUS")
 		{
 			my $status = $host_view->overallStatus->val;
 			$output = "overall status=" . $status;
 			$res = check_health_state($status);
 		}
-		elsif (uc($subcommand) eq "ISSUES")
+		elsif ($subcommand eq "ISSUES")
 		{
 			my $issues = $host_view->configIssue;
 
@@ -1686,7 +1786,7 @@ sub host_service_info
 		my %service_state = (0 => "down", 1 => "up");
 		$res = OK;
 		$output = "services : ";
-		$output .= $_->key . " (" . $service_state{$_->running} . "), " foreach (@$services);	
+		$output .= $_->key . " (" . $service_state{$_->running} . "), " foreach (@$services);
 		chop($output);
 		chop($output);
 	}
@@ -1709,7 +1809,7 @@ sub host_storage_info
 
 	if (defined($subcommand))
 	{
-		if (uc($subcommand) eq "ADAPTER")
+		if ($subcommand eq "ADAPTER")
 		{
 			$output = "";
 			$res = OK;
@@ -1734,7 +1834,7 @@ sub host_storage_info
 			$res = $state if ($state != OK);
 			$np->add_perfdata(label => "adapters", value => $count, uom => 'units', threshold => $np->threshold);
 		}
-		elsif (uc($subcommand) eq "LUN")
+		elsif ($subcommand eq "LUN")
 		{
 			$output = "";
 			$res = OK;
@@ -1792,7 +1892,7 @@ sub host_storage_info
 			$state = $np->check_threshold(check => $count);
 			$res = $state if ($state != OK);
 		}
-		elsif (uc($subcommand) eq "PATH")
+		elsif ($subcommand eq "PATH")
 		{
 			if (exists($storage->storageDeviceInfo->{multipathInfo}))
 			{
@@ -1989,7 +2089,7 @@ sub vm_cpu_info
 
 	if (defined($subcommand))
 	{
-		if (uc($subcommand) eq "USAGE")
+		if ($subcommand eq "USAGE")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'cpu', ('usage.average'));
 			if (defined($values))
@@ -2000,7 +2100,7 @@ sub vm_cpu_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "USAGEMHZ")
+		elsif ($subcommand eq "USAGEMHZ")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'cpu', ('usagemhz.average'));
 			if (defined($values))
@@ -2011,7 +2111,7 @@ sub vm_cpu_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "WAIT")
+		elsif ($subcommand eq "WAIT")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'cpu', ('wait.summation:*'));
 			if (defined($values))
@@ -2019,6 +2119,17 @@ sub vm_cpu_info
 				my $value = simplify_number(convert_number($$values[0][0]->value));
 				$np->add_perfdata(label => "cpu_wait", value => $value, uom => 'ms', threshold => $np->threshold);
 				$output = "\"$vmname\" cpu wait=" . $value . " ms";
+				$res = $np->check_threshold(check => $value);
+			}
+		}
+		elsif ($subcommand eq "READY")
+		{
+			$values = return_host_vmware_performance_values($vmname, 'cpu', ('ready.summation:*'));
+			if (defined($values))
+			{
+				my $value = simplify_number(convert_number($$values[0][0]->value));
+				$np->add_perfdata(label => "cpu_ready", value => $value, uom => 'ms', threshold => $np->threshold);
+				$output = "\"$vmname\" cpu ready=" . $value . " ms";
 				$res = $np->check_threshold(check => $value);
 			}
 		}
@@ -2030,17 +2141,19 @@ sub vm_cpu_info
 	}
 	else
 	{
-		$values = return_host_vmware_performance_values($vmname, 'cpu', ('usagemhz.average', 'usage.average', 'wait.summation:*'));
+		$values = return_host_vmware_performance_values($vmname, 'cpu', ('usagemhz.average', 'usage.average', 'wait.summation:*', 'ready.summation:*'));
 		if (defined($values))
 		{
 			my $value1 = simplify_number(convert_number($$values[0][0]->value));
 			my $value2 = simplify_number(convert_number($$values[0][1]->value) * 0.01);
 			my $value3 = simplify_number(convert_number($$values[0][2]->value));
+			my $value4 = simplify_number(convert_number($$values[0][3]->value));
 			$np->add_perfdata(label => "cpu_usagemhz", value => $value1, uom => 'Mhz', threshold => $np->threshold);
 			$np->add_perfdata(label => "cpu_usage", value => $value2, uom => '%', threshold => $np->threshold);
 			$np->add_perfdata(label => "cpu_wait", value => $value3, uom => 'ms', threshold => $np->threshold);
+			$np->add_perfdata(label => "cpu_ready", value => $value4, uom => 'ms', threshold => $np->threshold);
 			$res = OK;
-			$output = "\"$vmname\" cpu usage=" . $value1 . " MHz(" . $value2 . "%) wait=" . $value3 . " ms";
+			$output = "\"$vmname\" cpu usage=" . $value1 . " MHz(" . $value2 . "%), wait=" . $value3 . " ms, ready=" . $value4 . " ms";
 		}
 	}
 
@@ -2056,7 +2169,7 @@ sub vm_mem_info
 
 	if (defined($subcommand))
 	{
-		if (uc($subcommand) eq "USAGE")
+		if ($subcommand eq "USAGE")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'mem', ('usage.average'));
 			if (defined($values))
@@ -2067,7 +2180,7 @@ sub vm_mem_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "USAGEMB")
+		elsif ($subcommand eq "USAGEMB")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'mem', ('consumed.average'));
 			if (defined($values))
@@ -2078,7 +2191,7 @@ sub vm_mem_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "SWAP")
+		elsif ($subcommand eq "SWAP")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'mem', ('swapped.average'));
 			if (defined($values))
@@ -2089,7 +2202,7 @@ sub vm_mem_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "SWAPIN")
+		elsif ($subcommand eq "SWAPIN")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'mem', ('swapin.average'));
 			if (defined($values))
@@ -2100,7 +2213,7 @@ sub vm_mem_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "SWAPOUT")
+		elsif ($subcommand eq "SWAPOUT")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'mem', ('swapout.average'));
 			if (defined($values))
@@ -2111,7 +2224,7 @@ sub vm_mem_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "OVERHEAD")
+		elsif ($subcommand eq "OVERHEAD")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'mem', ('overhead.average'));
 			if (defined($values))
@@ -2122,7 +2235,7 @@ sub vm_mem_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "OVERALL")
+		elsif ($subcommand eq "OVERALL")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'mem', ('consumed.average', 'overhead.average'));
 			if (defined($values))
@@ -2133,7 +2246,7 @@ sub vm_mem_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "ACTIVE")
+		elsif ($subcommand eq "ACTIVE")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'mem', ('active.average'));
 			if (defined($values))
@@ -2144,7 +2257,7 @@ sub vm_mem_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "MEMCTL")
+		elsif ($subcommand eq "MEMCTL")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'mem', ('vmmemctl.average'));
 			if (defined($values))
@@ -2199,7 +2312,7 @@ sub vm_net_info
 
 	if (defined($subcommand))
 	{
-		if (uc($subcommand) eq "USAGE")
+		if ($subcommand eq "USAGE")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'net', ('usage.average:*'));
 			if (defined($values))
@@ -2210,7 +2323,7 @@ sub vm_net_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "RECEIVE")
+		elsif ($subcommand eq "RECEIVE")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'net', ('received.average:*'));
 			if (defined($values))
@@ -2221,7 +2334,7 @@ sub vm_net_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "SEND")
+		elsif ($subcommand eq "SEND")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'net', ('transmitted.average:*'));
 			if (defined($values))
@@ -2264,7 +2377,7 @@ sub vm_disk_io_info
 
 	if (defined($subcommand))
 	{
-		if (uc($subcommand) eq "USAGE")
+		if ($subcommand eq "USAGE")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'disk', ('usage.average:*'));
 			if (defined($values))
@@ -2275,7 +2388,7 @@ sub vm_disk_io_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "READ")
+		elsif ($subcommand eq "READ")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'disk', ('read.average:*'));
 			if (defined($values))
@@ -2286,7 +2399,7 @@ sub vm_disk_io_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "WRITE")
+		elsif ($subcommand eq "WRITE")
 		{
 			$values = return_host_vmware_performance_values($vmname, 'disk', ('write.average:*'));
 			if (defined($values))
@@ -2335,47 +2448,47 @@ sub vm_runtime_info
 
 	if (defined($subcommand))
 	{
-		if (uc($subcommand) eq "CON")
+		if ($subcommand eq "CON")
 		{
 			$output = "\"$vmname\" connection state=" . $runtime->connectionState->val;
 			$res = OK if ($runtime->connectionState->val eq "connected");
 		}
-		elsif (uc($subcommand) eq "CPU")
+		elsif ($subcommand eq "CPU")
 		{
 			$output = "\"$vmname\" max cpu=" . $runtime->maxCpuUsage . " MHz";
 			$res = OK;
 		}
-		elsif (uc($subcommand) eq "MEM")
+		elsif ($subcommand eq "MEM")
 		{
 			$output = "\"$vmname\" max mem=" . $runtime->maxMemoryUsage . " MB";
 			$res = OK;
 		}
-		elsif (uc($subcommand) eq "STATE")
+		elsif ($subcommand eq "STATE")
 		{
 			my %vm_state_strings = ("poweredOn" => "UP", "poweredOff" => "DOWN", "suspended" => "SUSPENDED");
 			my $state = $vm_state_strings{$runtime->powerState->val};
 			$output = "\"$vmname\" run state=" . $state;
 			$res = OK if ($state eq "UP");
 		}
-		elsif (uc($subcommand) eq "STATUS")
+		elsif ($subcommand eq "STATUS")
 		{
 			my $status = $vm_view->overallStatus->val;
 			$output = "\"$vmname\" overall status=" . $status;
 			$res = check_health_state($status);
 		}
-		elsif (uc($subcommand) eq "CONSOLECONNECTIONS")
+		elsif ($subcommand eq "CONSOLECONNECTIONS")
 		{
 			$output = "\"$vmname\" console connections=" . $runtime->numMksConnections;
 			$res = $np->check_threshold(check => $runtime->numMksConnections);
 		}
-		elsif (uc($subcommand) eq "GUEST")
+		elsif ($subcommand eq "GUEST")
 		{
 			my %vm_guest_state = ("running" => "Running", "notRunning" => "Not running", "shuttingDown" => "Shutting down", "resetting" => "Resetting", "standby" => "Standby", "unknown" => "Unknown");
 			my $state = $vm_guest_state{$vm_view->guest->guestState};
 			$output = "\"$vmname\" guest state=" . $state;
 			$res = OK if ($state eq "Running");
 		}
-		elsif (uc($subcommand) eq "TOOLS")
+		elsif ($subcommand eq "TOOLS")
 		{
 			my $tools_status;
 			my $tools_runstate;
@@ -2389,7 +2502,7 @@ sub vm_runtime_info
 				$tools_status = $vm_tools_strings{$tools_runstate} . "-" if (defined($tools_runstate));
 				$tools_status .= $vm_tools_strings{$tools_version} . "-" if (defined($tools_version));
 				chop($tools_status);
-				$res = OK if ($tools_status eq "Running-Newest");
+				$res = OK if (($tools_status eq "Running-Newest") || ($tools_status eq "Running-Unmanaged"));
 			}
 			else
 			{
@@ -2407,7 +2520,7 @@ sub vm_runtime_info
 			}
 			$output = "\"$vmname\" tools status=" . $tools_status;
 		}
-		elsif (uc($subcommand) eq "ISSUES")
+		elsif ($subcommand eq "ISSUES")
 		{
 			my $issues = $vm_view->configIssue;
 
@@ -2507,34 +2620,70 @@ sub return_cluster_DRS_recommendations {
 
 sub dc_cpu_info
 {
-	my ($np, $subcommand) = @_;
+	my ($np, $subcommand, $addopts) = @_;
 
 	my $res = CRITICAL;
 	my $output = 'DC CPU Unknown error';
 
+	my $quickStats;
+	$quickStats = $addopts =~ m/(^|\s|\t|,)\Qquickstats\E($|\s|\t|,)/ if (defined($addopts));
+
 	if (defined($subcommand))
 	{
-		if (uc($subcommand) eq "USAGE")
+		if ($subcommand eq "USAGE")
 		{
-			$values = return_dc_performance_values('cpu', ('usage.average'));
-			if (defined($values))
+			my $value;
+			if (defined($quickStats))
 			{
-				my $value = 0;
-				grep($value += convert_number($$_[0]->value) * 0.01, @$values);
-				$value = simplify_number($value / @$values);
+				my $host_views = Vim::find_entity_views(view_type => 'HostSystem', properties => ['name', 'summary.hardware', 'summary.quickStats']);
+				die "Runtime error\n" if (!defined($host_views));
+				die "Datacenter does not contain any hosts\n" if (!@$host_views);
+				foreach my $host_view (@$host_views)
+				{
+					$values = $host_view->get_property('summary.quickStats');
+					my $hardinfo = $host_view->get_property('summary.hardware');
+					die "Can not retrieve required information from Host '" . $host_view->name . "'\n" if !(exists($values->{overallCpuUsage}) && defined($hardinfo));
+					$value += $values->overallCpuUsage / ($hardinfo->numCpuCores * $hardinfo->cpuMhz) * 100;
+				}
+				$value = simplify_number($value / @$host_views);
+			}
+			else
+			{
+				$values = return_dc_performance_values('cpu', ('usage.average'));
+				grep($value += convert_number($$_[0]->value) * 0.01, @$values) if (defined($values));
+				$value = simplify_number($value / @$values) if (defined($value));
+			}
+			if (defined($value))
+			{
 				$np->add_perfdata(label => "cpu_usage", value => $value, uom => '%', threshold => $np->threshold);
 				$output = "cpu usage=" . $value . " %"; 
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "USAGEMHZ")
+		elsif ($subcommand eq "USAGEMHZ")
 		{
-			$values = return_dc_performance_values('cpu', ('usagemhz.average'));
-			if (defined($values))
+			my $value;
+			if (defined($quickStats))
 			{
-				my $value = 0;
-				grep($value += convert_number($$_[0]->value), @$values);
+				my $host_views = Vim::find_entity_views(view_type => 'HostSystem', properties => ['name', 'summary.quickStats']);
+				die "Runtime error\n" if (!defined($host_views));
+				die "Datacenter does not contain any hosts\n" if (!@$host_views);
+				foreach my $host_view (@$host_views)
+				{
+					$values = $host_view->get_property('summary.quickStats');
+					die "Can not retrieve required information from Host '" . $host_view->name . "'\n" if !(exists($values->{overallCpuUsage}));
+					$value += $values->overallCpuUsage;
+				}
 				$value = simplify_number($value);
+			}
+			else
+			{
+				$values = return_dc_performance_values('cpu', ('usagemhz.average'));
+				grep($value += convert_number($$_[0]->value), @$values);
+				$value = simplify_number($value) if (defined($value));
+			}
+			if (defined($value))
+			{
 				$np->add_perfdata(label => "cpu_usagemhz", value => $value, uom => 'Mhz', threshold => $np->threshold);
 				$output = "cpu usagemhz=" . $value . " MHz";
 				$res = $np->check_threshold(check => $value);
@@ -2548,15 +2697,34 @@ sub dc_cpu_info
 	}
 	else
 	{
-		$values = return_dc_performance_values('cpu', ('usagemhz.average', 'usage.average'));
-		if (defined($values))
+		my $value1 = 0;
+		my $value2 = 0;
+		if (defined($quickStats))
 		{
-			my $value1 = 0;
-			my $value2 = 0;
+			my $host_views = Vim::find_entity_views(view_type => 'HostSystem', properties => ['name', 'summary.hardware', 'summary.quickStats']);
+			die "Runtime error\n" if (!defined($host_views));
+			die "Datacenter does not contain any hosts\n" if (!@$host_views);
+			foreach my $host_view (@$host_views)
+			{
+				$values = $host_view->get_property('summary.quickStats');
+				my $hardinfo = $host_view->get_property('summary.hardware');
+				die "Can not retrieve required information from Host '" . $host_view->name . "'\n" if !(exists($values->{overallCpuUsage}) && defined($hardinfo));
+				$value1 += $values->overallCpuUsage;
+				$value2 += $values->overallCpuUsage / ($hardinfo->numCpuCores * $hardinfo->cpuMhz) * 100;
+			}
+			$value1 = simplify_number($value1);
+			$value2 = simplify_number($value2 / @$host_views);
+		}
+		else
+		{
+			$values = return_dc_performance_values('cpu', ('usagemhz.average', 'usage.average'));
 			grep($value1 += convert_number($$_[0]->value), @$values);
 			grep($value2 += convert_number($$_[1]->value) * 0.01, @$values);
 			$value1 = simplify_number($value1);
 			$value2 = simplify_number($value2 / @$values);
+		}
+		if (defined($value1) && defined($value2))
+		{
 			$np->add_perfdata(label => "cpu_usagemhz", value => $value1, uom => 'Mhz', threshold => $np->threshold);
 			$np->add_perfdata(label => "cpu_usage", value => $value2, uom => '%', threshold => $np->threshold);
 			$res = OK;
@@ -2569,40 +2737,76 @@ sub dc_cpu_info
 
 sub dc_mem_info
 {
-	my ($np, $subcommand) = @_;
+	my ($np, $subcommand, $addopts) = @_;
 
 	my $res = CRITICAL;
 	my $output = 'DC MEM Unknown error';
 
+	my $quickStats;
+	$quickStats = $addopts =~ m/(^|\s|\t|,)\Qquickstats\E($|\s|\t|,)/ if (defined($addopts));
+
 	if (defined($subcommand))
 	{
-		if (uc($subcommand) eq "USAGE")
+		if ($subcommand eq "USAGE")
 		{
-			$values = return_dc_performance_values('mem', ('usage.average'));
-			if (defined($values))
+			my $value;
+			if (defined($quickStats))
 			{
-				my $value = 0;
+				my $host_views = Vim::find_entity_views(view_type => 'HostSystem', properties => ['name', 'summary.hardware', 'summary.quickStats']);
+				die "Runtime error\n" if (!defined($host_views));
+				die "Datacenter does not contain any hosts\n" if (!@$host_views);
+				foreach my $host_view (@$host_views)
+				{
+					$values = $host_view->get_property('summary.quickStats');
+					my $hardinfo = $host_view->get_property('summary.hardware');
+					die "Can not retrieve required information from Host '" . $host_view->name . "'\n" if !(exists($values->{overallMemoryUsage}) && defined($hardinfo));
+					$value += $values->overallMemoryUsage / ($hardinfo->memorySize / 1024 / 1024) * 100;
+				}
+				$value = simplify_number($value);
+			}
+			else
+			{
+				$values = return_dc_performance_values('mem', ('usage.average'));
 				grep($value += convert_number($$_[0]->value) * 0.01, @$values);
-				$value = simplify_number($value / @$values);
+				$value = simplify_number($value / @$values) if (defined($value));
+			}
+			if (defined($value))
+			{
 				$np->add_perfdata(label => "mem_usage", value => $value, uom => '%', threshold => $np->threshold);
 				$output = "mem usage=" . $value . " %"; 
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "USAGEMB")
+		elsif ($subcommand eq "USAGEMB")
 		{
-			$values = return_dc_performance_values('mem', ('consumed.average'));
-			if (defined($values))
+			my $value;
+			if (defined($quickStats))
 			{
-				my $value = 0;
-				grep($value += convert_number($$_[0]->value) / 1024, @$values);
+				my $host_views = Vim::find_entity_views(view_type => 'HostSystem', properties => ['name', 'summary.quickStats']);
+				die "Runtime error\n" if (!defined($host_views));
+				die "Datacenter does not contain any hosts\n" if (!@$host_views);
+				foreach my $host_view (@$host_views)
+				{
+					$values = $host_view->get_property('summary.quickStats');
+					die "Can not retrieve required information from Host '" . $host_view->name . "'\n" if !(exists($values->{overallMemoryUsage}));
+					$value += $values->overallMemoryUsage;
+				}
 				$value = simplify_number($value);
+			}
+			else
+			{
+				$values = return_dc_performance_values('mem', ('consumed.average'));
+				grep($value += convert_number($$_[0]->value) / 1024, @$values);
+				$value = simplify_number($value) if (defined($value));
+			}
+			if (defined($value))
+			{
 				$np->add_perfdata(label => "mem_usagemb", value => $value, uom => 'MB', threshold => $np->threshold);
 				$output = "mem usage=" . $value . " MB";
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "SWAP")
+		elsif ($subcommand eq "SWAP")
 		{
 			$values = return_dc_performance_values('mem', ('swapused.average'));
 			if (defined($values))
@@ -2615,7 +2819,7 @@ sub dc_mem_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "OVERHEAD")
+		elsif ($subcommand eq "OVERHEAD")
 		{
 			$values = return_dc_performance_values('mem', ('overhead.average'));
 			if (defined($values))
@@ -2628,7 +2832,7 @@ sub dc_mem_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "OVERALL")
+		elsif ($subcommand eq "OVERALL")
 		{
 			$values = return_dc_performance_values('mem', ('consumed.average', 'overhead.average'));
 			if (defined($values))
@@ -2641,7 +2845,7 @@ sub dc_mem_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "MEMCTL")
+		elsif ($subcommand eq "MEMCTL")
 		{
 			$values = return_dc_performance_values('mem', ('vmmemctl.average'));
 			if (defined($values))
@@ -2702,7 +2906,7 @@ sub dc_net_info
 
 	if (defined($subcommand))
 	{
-		if (uc($subcommand) eq "USAGE")
+		if ($subcommand eq "USAGE")
 		{
 			$values = return_dc_performance_values('net', ('usage.average:*'));
 			if (defined($values))
@@ -2715,7 +2919,7 @@ sub dc_net_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "RECEIVE")
+		elsif ($subcommand eq "RECEIVE")
 		{
 			$values = return_dc_performance_values('net', ('received.average:*'));
 			if (defined($values))
@@ -2728,7 +2932,7 @@ sub dc_net_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "SEND")
+		elsif ($subcommand eq "SEND")
 		{
 			$values = return_dc_performance_values('net', ('transmitted.average:*'));
 			if (defined($values))
@@ -2772,127 +2976,16 @@ sub dc_list_vm_volumes_info
 {
 	my ($np, $subcommand, $blacklist, $perc, $addopts) = @_;
 
-	my $res = CRITICAL;
-	my $output = 'DC VM VOLUMES Unknown error';
+	my $host_views = Vim::find_entity_views(view_type => 'HostSystem', properties => ['name', 'datastore']);
+	die "Runtime error\n" if (!defined($host_views));
+	die "Datacenter does not contain any hosts\n" if (!@$host_views);
 
-	my $usedflag;
-	my $briefflag;
-	$usedflag = $addopts =~ m/(^|\s|\t|,)\Qused\E($|\s|\t|,)/ if (defined($addopts));
-	$briefflag = $addopts =~ m/(^|\s|\t|,)\Qbrief\E($|\s|\t|,)/ if (defined($addopts));
-
-	if (defined($subcommand))
+	my @datastores;
+	foreach my $host (@$host_views)
 	{
-		$output = "No volume named $subcommand found";
-		my $host_views = Vim::find_entity_views(view_type => 'HostSystem', properties => ['name', 'datastore']);
-		die "Runtime error\n" if (!defined($host_views));
-		die "Datacenter does not contain any hosts\n" if (!@$host_views);
-
-		HOSTITER: foreach my $host (@$host_views) {
-			die "Insufficient rights to access Datastores on the DC\n" if (!defined($host->datastore));
-			foreach my $ref_store (@{$host->datastore})
-			{
-				my $store = Vim::get_view(mo_ref => $ref_store, properties => ['summary', 'info']);
-				if ($store->summary->name eq $subcommand)
-				{
-					if ($store->summary->accessible)
-					{
-						$res = OK;
-						my $value1 = simplify_number(convert_number($store->summary->freeSpace) / 1024 / 1024);
-						my $value2 = simplify_number(convert_number($store->info->freeSpace) / convert_number($store->summary->capacity) * 100);
-
-						if ($usedflag)
-						{
-							$value1 = simplify_number(convert_number($store->summary->capacity) / 1024 / 1024) - $value1;
-							$value2 = 100 - $value2;
-						}
-
-						if ($perc)
-						{
-							$res = $np->check_threshold(check => $value2);
-						}
-						else
-						{
-							$res = $np->check_threshold(check => $value1);
-						}				
-						$np->add_perfdata(label => $store->summary->name, value => $perc?$value2:$value1, uom => $perc?'%':'MB', threshold => $np->threshold);
-						$output = $store->summary->name . "=". $value1 . " MB (" . $value2 . "%)";
-						last HOSTITER;
-					}
-					else
-					{
-						$res = CRITICAL;
-						$output = $store->summary->name . " is not accessible";
-					}
-				}
-			}
-		}
+		push(@datastores, @{$host->datastore});
 	}
-	else
-	{
-		$res = OK;
-		$output = '';
-		my $host_views = Vim::find_entity_views(view_type => 'HostSystem', properties => ['name', 'datastore']);
-		die "Runtime error\n" if (!defined($host_views));
-		die "Datacenter does not contain any hosts\n" if (!@$host_views);
-
-		my $state;
-		foreach my $host (@$host_views) {
-			die "Insufficient rights to access Datastores on the DC\n" if (!defined($host->datastore));
-			foreach my $ref_store (@{$host->datastore})
-			{
-				my $store = Vim::get_view(mo_ref => $ref_store, properties => ['summary', 'info']);
-
-				if (defined($blacklist))
-				{
-					my $name = $store->summary->name;
-					next if ($blacklist =~ m/(^|\s|\t|,)\Q$name\E($|\s|\t|,)/);
-				}
-
-				if ($store->summary->accessible)
-				{
-					my $value1 = simplify_number(convert_number($store->summary->freeSpace) / 1024 / 1024);
-					my $value2 = simplify_number(convert_number($store->info->freeSpace) / convert_number($store->summary->capacity) * 100);
-
-					if ($usedflag)
-					{
-						$value1 = simplify_number(convert_number($store->summary->capacity) / 1024 / 1024) - $value1;
-						$value2 = 100 - $value2;
-					}
-
-					if ($perc)
-					{
-						$state = $np->check_threshold(check => $value2);
-						$res = Nagios::Plugin::Functions::max_state($res, $state);
-					}
-					else
-					{
-						$state = $np->check_threshold(check => $value1);
-						$res = Nagios::Plugin::Functions::max_state($res, $state);
-					}
-
-					$np->add_perfdata(label => $store->summary->name, value => $perc?$value2:$value1, uom => $perc?'%':'MB', threshold => $np->threshold);
-					$output .= $store->summary->name . "=". $value1 . " MB (" . $value2 . "%), " if (!$briefflag || $state != OK);
-				}
-				else
-				{
-					$res = CRITICAL;
-					$output .= $store->summary->name . " is not accessible, ";
-				}
-			}
-		}
-		chop($output);
-		chop($output);
-		if ($output)
-		{
-			$output = "storages : " . $output;
-		}
-		else
-		{
-			$output = "all values are in normal range";
-		}
-	}
-
-	return ($res, $output);
+	return datastore_volumes_info(\@datastores, $np, $subcommand, $blacklist, $perc, $addopts);
 }
 
 sub dc_disk_io_info
@@ -2904,7 +2997,7 @@ sub dc_disk_io_info
 
 	if (defined($subcommand))
 	{
-		if (uc($subcommand) eq "ABORTED")
+		if ($subcommand eq "ABORTED")
 		{
 			$values = return_dc_performance_values('disk', ('commandsAborted.summation:*'));
 			if (defined($values))
@@ -2917,7 +3010,7 @@ sub dc_disk_io_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "RESETS")
+		elsif ($subcommand eq "RESETS")
 		{
 			$values = return_dc_performance_values('disk', ('busResets.summation:*'));
 			if (defined($values))
@@ -2930,7 +3023,7 @@ sub dc_disk_io_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "READ")
+		elsif ($subcommand eq "READ")
 		{
 			$values = return_dc_performance_values('disk', ('totalReadLatency.average:*'));
 			if (defined($values))
@@ -2943,7 +3036,7 @@ sub dc_disk_io_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "WRITE")
+		elsif ($subcommand eq "WRITE")
 		{
 			$values = return_dc_performance_values('disk', ('totalWriteLatency.average:*'));
 			if (defined($values))
@@ -2956,7 +3049,7 @@ sub dc_disk_io_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "KERNEL")
+		elsif ($subcommand eq "KERNEL")
 		{
 			$values = return_dc_performance_values('disk', ('kernelLatency.average:*'));
 			if (defined($values))
@@ -2969,7 +3062,7 @@ sub dc_disk_io_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "DEVICE")
+		elsif ($subcommand eq "DEVICE")
 		{
 			$values = return_dc_performance_values('disk', ('deviceLatency.average:*'));
 			if (defined($values))
@@ -2982,7 +3075,7 @@ sub dc_disk_io_info
 				$res = $np->check_threshold(check => $value);
 			}
 		}
-		elsif (uc($subcommand) eq "QUEUE")
+		elsif ($subcommand eq "QUEUE")
 		{
 			$values = return_dc_performance_values('disk', ('queueLatency.average:*'));
 			if (defined($values))
@@ -3055,7 +3148,7 @@ sub dc_runtime_info
 
 	if (defined($subcommand))
 	{
-		if ((uc($subcommand) eq "LIST") || (uc($subcommand) eq "LISTVM"))
+		if (($subcommand eq "LIST") || ($subcommand eq "LISTVM"))
 		{
 			my %vm_state_strings = ("poweredOn" => "UP", "poweredOff" => "DOWN", "suspended" => "SUSPENDED");
 			my $vm_views = Vim::find_entity_views(view_type => 'VirtualMachine', properties => ['name', 'runtime']);
@@ -3084,9 +3177,9 @@ sub dc_runtime_info
 			$np->add_perfdata(label => "vmcount", value => $up, uom => 'units', threshold => $np->threshold);
 			$res = $np->check_threshold(check => $up) if (defined($np->threshold));
 		}
-		elsif (uc($subcommand) eq "LISTHOST")
+		elsif ($subcommand eq "LISTHOST")
 		{
-			my %host_state_strings = ("unknown" => "UNKNOWN", "poweredOn" => "UP", "poweredOff" => "DOWN", "suspended" => "SUSPENDED");
+			my %host_state_strings = ("unknown" => "UNKNOWN", "poweredOn" => "UP", "poweredOff" => "DOWN", "suspended" => "SUSPENDED", "standBy" => "STANDBY", "MaintenanceMode" => "Maintenance Mode");
 			my $host_views = Vim::find_entity_views(view_type => 'HostSystem', properties => ['name', 'runtime.powerState']);
 			die "Runtime error\n" if (!defined($host_views));
 			die "There are no VMs.\n" if (!@$host_views);
@@ -3115,7 +3208,7 @@ sub dc_runtime_info
 			$res = $np->check_threshold(check => $up) if (defined($np->threshold));
 			$res = UNKNOWN if ($res == OK && $unknown);
 		}
-		elsif (uc($subcommand) eq "TOOLS")
+		elsif ($subcommand eq "TOOLS")
 		{
 			my $vm_views = Vim::find_entity_views(view_type => 'VirtualMachine', properties => ['name', 'runtime.powerState', 'summary.guest']);
 			die "Runtime error\n" if (!defined($vm_views));
@@ -3192,7 +3285,7 @@ sub dc_runtime_info
 			$res = $np->check_threshold(check => $tools_ok) if (defined($np->threshold));
 			$np->add_perfdata(label => "toolsok", value => $tools_ok, uom => '%', threshold => $np->threshold);
 		}
-		elsif (uc($subcommand) eq "STATUS")
+		elsif ($subcommand eq "STATUS")
 		{
 			if (defined($dc_view->overallStatus))
 			{
@@ -3206,7 +3299,7 @@ sub dc_runtime_info
 				$res = WARNING;
 			}
 		}
-		elsif (uc($subcommand) eq "ISSUES")
+		elsif ($subcommand eq "ISSUES")
 		{
 			my $issues = $dc_view->configIssue;
 			my $issues_count = 0;
@@ -3242,11 +3335,10 @@ sub dc_runtime_info
 	else
 	{
 		my %host_maintenance_state = (0 => "no", 1 => "yes");
-		my $vm_views = Vim::find_entity_views(view_type => 'VirtualMachine', properties => ['name', 'runtime.powerState']);
+		my $vm_views = Vim::find_entity_views(view_type => 'VirtualMachine', begin_entity => $dc_view, properties => ['name', 'runtime.powerState']);
+		die "Runtime error\n" if (!defined($vm_views));
 		my $up = 0;
 
-		die "Runtime error\n" if (!defined($vm_views));
-		
 		if (@$vm_views)
 		{
 			foreach my $vm (@$vm_views) {
@@ -3260,20 +3352,503 @@ sub dc_runtime_info
 		}
 		$np->add_perfdata(label => "vmcount", value => $up, uom => 'units', threshold => $np->threshold);
 
+		my $host_views = Vim::find_entity_views(view_type => 'HostSystem', properties => ['name', 'runtime.powerState']);
+		die "Runtime error\n" if (!defined($host_views));
+		$up = 0;
+
+		if (@$host_views)
+		{
+			foreach my $host (@$host_views) {
+				$up += $host->get_property('runtime.powerState')->val eq "poweredOn"
+			}
+			$output .= $up . "/" . @$host_views . " Hosts up, ";
+		}
+		else
+		{
+			$output .= "there are no hosts, ";
+		}
+		$np->add_perfdata(label => "hostcount", value => $up, uom => 'units');
+
 		$res = OK;
 		$output .= "overall status=" . $dc_view->overallStatus->val . ", " if (defined($dc_view->overallStatus));
 		my $issues = $dc_view->configIssue;
 		if (defined($issues))
 		{
 			$output .= @$issues . " config issue(s)";
-			$np->add_perfdata(label => "health_issues", value => "" . @$issues);
+			$np->add_perfdata(label => "config_issues", value => "" . @$issues);
 		}
 		else
 		{
 			$output .= "no config issues";
-			$np->add_perfdata(label => "health_issues", value => 0);
+			$np->add_perfdata(label => "config_issues", value => 0);
 		}
 	}
 
 	return ($res, $output);
 }
+
+#=====================================================================| Cluster |============================================================================#
+
+sub cluster_cpu_info
+{
+	my ($cluster, $np, $subcommand) = @_;
+
+	my $res = CRITICAL;
+	my $output = 'CLUSTER CPU Unknown error';
+
+	if (defined($subcommand))
+	{
+		if ($subcommand eq "USAGE")
+		{
+			$values = return_cluster_performance_values($cluster, 'cpu', ('usage.average'));
+			if (defined($values))
+			{
+				my $value = simplify_number(convert_number($$values[0][0]->value) * 0.01);
+				$np->add_perfdata(label => "cpu_usage", value => $value, uom => '%', threshold => $np->threshold);
+				$output = "cpu usage=" . $value . " %"; 
+				$res = $np->check_threshold(check => $value);
+			}
+		}
+		elsif ($subcommand eq "USAGEMHZ")
+		{
+			$values = return_cluster_performance_values($cluster, 'cpu', ('usagemhz.average'));
+			if (defined($values))
+			{
+				my $value = simplify_number(convert_number($$values[0][0]->value));
+				$np->add_perfdata(label => "cpu_usagemhz", value => $value, uom => 'Mhz', threshold => $np->threshold);
+				$output = "cpu usagemhz=" . $value . " MHz";
+				$res = $np->check_threshold(check => $value);
+			}
+		}
+		else
+		{
+			$res = CRITICAL;
+			$output = "CLUSTER CPU - unknown subcommand\n" . $np->opts->_help;
+		}
+	}
+	else
+	{
+		$values = return_host_performance_values($cluster, 'cpu', ('usagemhz.average', 'usage.average'));
+		if (defined($values))
+		{
+			my $value1 = simplify_number(convert_number($$values[0][0]->value));
+			my $value2 = simplify_number(convert_number($$values[0][1]->value) * 0.01);
+			$np->add_perfdata(label => "cpu_usagemhz", value => $value1, uom => 'Mhz', threshold => $np->threshold);
+			$np->add_perfdata(label => "cpu_usage", value => $value2, uom => '%', threshold => $np->threshold);
+			$res = OK;
+			$output = "cpu usage=" . $value1 . " MHz (" . $value2 . "%)";
+		}
+	}
+
+	return ($res, $output);
+}
+
+sub cluster_mem_info
+{
+	my ($cluster, $np, $subcommand, $addopts) = @_;
+
+	my $res = CRITICAL;
+	my $output = 'CLUSTER MEM Unknown error';
+
+	my $outputlist;
+	$outputlist = $addopts =~ m/(^|\s|\t|,)\Qlistvm\E($|\s|\t|,)/ if (defined($addopts));
+
+	if (defined($subcommand))
+	{
+		if ($subcommand eq "USAGE")
+		{
+			$values = return_cluster_performance_values($cluster, 'mem', ('usage.average'));
+			if (defined($values))
+			{
+				my $value = simplify_number(convert_number($$values[0][0]->value) * 0.01);
+				$np->add_perfdata(label => "mem_usage", value => $value, uom => '%', threshold => $np->threshold);
+				$output = "mem usage=" . $value . " %"; 
+				$res = $np->check_threshold(check => $value);
+			}
+		}
+		elsif ($subcommand eq "USAGEMB")
+		{
+			$values = return_cluster_performance_values($cluster, 'mem', ('consumed.average'));
+			if (defined($values))
+			{
+				my $value = simplify_number(convert_number($$values[0][0]->value) / 1024);
+				$np->add_perfdata(label => "mem_usagemb", value => $value, uom => 'MB', threshold => $np->threshold);
+				$output = "mem usage=" . $value . " MB";
+				$res = $np->check_threshold(check => $value);
+			}
+		}
+		elsif ($subcommand eq "SWAP")
+		{
+			my $cluster_view;
+			($cluster_view, $values) = return_cluster_performance_values($cluster, 'mem', ('swapused.average'));
+			if (defined($values))
+			{
+				my $value = simplify_number(convert_number($$values[0][0]->value) / 1024);
+				$np->add_perfdata(label => "mem_swap", value => $value, uom => 'MB', threshold => $np->threshold);
+				$output = "swap usage=" . $value . " MB: ";
+				$res = $np->check_threshold(check => $value);
+				if ($res != OK && $outputlist)
+				{
+					my $vm_views = Vim::find_entity_views(view_type => 'VirtualMachine', begin_entity => $$cluster_view[0], properties => ['name', 'runtime.powerState']);
+					die "Runtime error\n" if (!defined($vm_views));
+					die "There are no VMs.\n" if (!@$vm_views);
+					my @vms = ();
+					foreach my $vm (@$vm_views)
+					{
+						push(@vms, $vm) if ($vm->get_property('runtime.powerState')->val eq "poweredOn");
+					}
+					$values = generic_performance_values(\@vms, 'mem', ('swapped.average'));
+					if (defined($values))
+					{
+						foreach my $index (0..@vms-1) {
+							my $value = simplify_number(convert_number($$values[$index][0]->value) / 1024);
+							$output .= $vms[$index]->name . " (" . $value . "MB), " if ($value > 0);
+						}
+					}
+				}
+				chop($output);
+				chop($output);
+			}
+		}
+		elsif ($subcommand eq "OVERHEAD")
+		{
+			$values = return_cluster_performance_values($cluster, 'mem', ('overhead.average'));
+			if (defined($values))
+			{
+				my $value = simplify_number(convert_number($$values[0][0]->value) / 1024);
+				$np->add_perfdata(label => "mem_overhead", value => $value, uom => 'MB', threshold => $np->threshold);
+				$output = "overhead=" . $value . " MB";
+				$res = $np->check_threshold(check => $value);
+			}
+		}
+		elsif ($subcommand eq "OVERALL")
+		{
+			$values = return_cluster_performance_values($cluster, 'mem', ('consumed.average', 'overhead.average'));
+			if (defined($values))
+			{
+				my $value = simplify_number((convert_number($$values[0][0]->value) + convert_number($$values[1]->value)) / 1024);
+				$np->add_perfdata(label => "mem_overhead", value =>  $value, uom => 'MB', threshold => $np->threshold);
+				$output = "overall=" . $value . " MB";
+				$res = $np->check_threshold(check => $value);
+			}
+		}
+		elsif ($subcommand eq "MEMCTL")
+		{
+			my $cluster_view;
+			($cluster_view, $values) = return_cluster_performance_values($cluster, 'mem', ('vmmemctl.average'));
+			if (defined($values))
+			{
+				my $value = simplify_number(convert_number($$values[0][0]->value) / 1024);
+				$np->add_perfdata(label => "mem_memctl", value => $value, uom => 'MB', threshold => $np->threshold);
+				$output = "memctl=" . $value . " MB: ";
+				$res = $np->check_threshold(check => $value);
+				if ($res != OK && $outputlist)
+				{
+					my $vm_views = Vim::find_entity_views(view_type => 'VirtualMachine', begin_entity => $$cluster_view[0], properties => ['name', 'runtime.powerState']);
+					die "Runtime error\n" if (!defined($vm_views));
+					die "There are no VMs.\n" if (!@$vm_views);
+					my @vms = ();
+					foreach my $vm (@$vm_views)
+					{
+						push(@vms, $vm) if ($vm->get_property('runtime.powerState')->val eq "poweredOn");
+					}
+					$values = generic_performance_values(\@vms, 'mem', ('vmmemctl.average'));
+					if (defined($values))
+					{
+						foreach my $index (0..@vms-1) {
+							my $value = simplify_number(convert_number($$values[$index][0]->value) / 1024);
+							$output .= $vms[$index]->name . " (" . $value . "MB), " if ($value > 0);
+						}
+					}
+				}
+				chop($output);
+				chop($output);
+			}
+		}
+		else
+		{
+			$res = CRITICAL;
+			$output = "CLUSTER MEM - unknown subcommand\n" . $np->opts->_help;
+		}
+	}
+	else
+	{
+		$values = return_cluster_performance_values($cluster, 'mem', ('consumed.average', 'usage.average', 'overhead.average', 'swapused.average', 'vmmemctl.average'));
+		if (defined($values))
+		{
+			my $value1 = simplify_number(convert_number($$values[0][0]->value) / 1024);
+			my $value2 = simplify_number(convert_number($$values[0][1]->value) * 0.01);
+			my $value3 = simplify_number(convert_number($$values[0][2]->value) / 1024);
+			my $value4 = simplify_number(convert_number($$values[0][3]->value) / 1024);
+			my $value5 = simplify_number(convert_number($$values[0][4]->value) / 1024);
+			$np->add_perfdata(label => "mem_usagemb", value => $value1, uom => 'MB', threshold => $np->threshold);
+			$np->add_perfdata(label => "mem_usage", value => $value2, uom => '%', threshold => $np->threshold);
+			$np->add_perfdata(label => "mem_overhead", value => $value3, uom => 'MB', threshold => $np->threshold);
+			$np->add_perfdata(label => "mem_swap", value => $value4, uom => 'MB', threshold => $np->threshold);
+			$np->add_perfdata(label => "mem_memctl", value => $value5, uom => 'MB', threshold => $np->threshold);
+			$res = OK;
+			$output = "mem usage=" . $value1 . " MB (" . $value2 . "%), overhead=" . $value3 . " MB, swapped=" . $value4 . " MB, memctl=" . $value5 . " MB";
+		}
+	}
+
+	return ($res, $output);
+}
+
+sub cluster_cluster_info
+{
+	my ($cluster, $np, $subcommand) = @_;
+	 
+	my $res = CRITICAL;
+	my $output = 'CLUSTER clusterServices Unknown error';
+	
+	if (defined($subcommand))
+	{
+		if ($subcommand eq "EFFECTIVECPU")
+		{
+			$values = return_cluster_performance_values($cluster, 'clusterServices', ('effectivecpu.average'));
+			if (defined($values))
+			{
+				my $value = simplify_number(convert_number(get_val_from_list($$values[0][0]->value)) * 0.01);
+				$np->add_perfdata(label => "effective cpu", value => $value, uom => 'Mhz', threshold => $np->threshold);
+				$output = "effective cpu=" . $value . " %"; 
+				$res = $np->check_threshold(check => $value);
+			}
+		}
+		elsif ($subcommand eq "EFFECTIVEMEM")
+		{
+			$values = return_cluster_performance_values($cluster, 'clusterServices', ('effectivemem.average'));
+			if (defined($values))
+			{
+				my $value = simplify_number(convert_number($$values[0][0]->value) / 1024);
+				$np->add_perfdata(label => "effectivemem", value => $value, uom => 'MB', threshold => $np->threshold);
+				$output = "effective mem=" . $value . " MB";
+				$res = $np->check_threshold(check => $value);
+			}
+		}
+		elsif ($subcommand eq "FAILOVER")
+		{
+			$values = return_cluster_performance_values($cluster, 'clusterServices', ('failover.latest:*'));
+			if (defined($values))
+			{
+				my $value = simplify_number(convert_number($$values[0][0]->value) / 1024);
+				$np->add_perfdata(label => "failover", value => $value, uom => 'MB', threshold => $np->threshold);
+				$output = "failover=" . $value . " ";
+				$res = $np->check_threshold(check => $value);
+			}
+		}
+		elsif ($subcommand eq "CPUFAIRNESS")
+		{
+			$values = return_cluster_performance_values($cluster, 'clusterServices', ('cpufairness.latest'));
+			if (defined($values))
+			{
+				my $value = simplify_number(convert_number($$values[0][0]->value));
+				$np->add_perfdata(label => "cpufairness", value => $value, uom => '%', threshold => $np->threshold);
+				$output = "cpufairness=" . $value . " %";
+				$res = $np->check_threshold(check => $value);
+			}
+		}
+		elsif ($subcommand eq "MEMFAIRNESS")
+		{
+			$values = return_cluster_performance_values($cluster, 'clusterServices', ('memfairness.latest'));
+			if (defined($values))
+			{
+				my $value = simplify_number((convert_number($$values[0][0]->value)));
+				$np->add_perfdata(label => "memfairness", value =>  $value, uom => '%', threshold => $np->threshold);
+				$output = "memfairness=" . $value . " %";
+				$res = $np->check_threshold(check => $value);
+			}
+		}
+		else
+		{
+			$res = CRITICAL;
+			$output = "CLUSTER clusterServices - unknown subcommand\n" . $np->opts->_help;
+		}
+	}
+	else
+	{
+		$values = return_cluster_performance_values($cluster, 'clusterServices', ('effectivecpu.average', 'effectivemem.average'));
+		if (defined($values))
+		{
+			my $value1 = simplify_number(convert_number($$values[0][0]->value));
+			my $value2 = simplify_number(convert_number($$values[0][1]->value) / 1024);
+			$np->add_perfdata(label => "effective cpu", value => $value1, uom => 'Mhz', threshold => $np->threshold);
+			$np->add_perfdata(label => "effective mem", value => $value2, uom => 'MB', threshold => $np->threshold);
+			$res = OK;
+			$output = "effective cpu=" . $value1 . " Mhz, effective Mem=" . $value2 . " MB";
+		}
+	}
+
+	return ($res, $output);
+}
+
+sub cluster_runtime_info
+{
+	my ($cluster, $np, $subcommand) = @_;
+
+	my $res = CRITICAL;
+	my $output = 'CLUSTER RUNTIME Unknown error';
+	my $runtime;
+	my $cluster_view = Vim::find_entity_view(view_type => 'ClusterComputeResource', filter => { name => "$cluster" }, properties => ['name', 'overallStatus', 'configIssue']);
+	die "Cluster \"" . $$cluster{"name"} . "\" does not exist\n" if (!defined($cluster_view));
+	$cluster_view->update_view_data();
+
+	if (defined($subcommand))
+	{
+		if (($subcommand eq "LIST") || ($subcommand eq "LISTVM"))
+		{
+			my %vm_state_strings = ("poweredOn" => "UP", "poweredOff" => "DOWN", "suspended" => "SUSPENDED");
+			my $vm_views = Vim::find_entity_views(view_type => 'VirtualMachine', begin_entity => $cluster_view, properties => ['name', 'runtime']);
+			die "Runtime error\n" if (!defined($vm_views));
+			die "There are no VMs.\n" if (!defined($vm_views));
+			my $up = 0;
+			$output = '';
+
+			foreach my $vm (@$vm_views)
+			{
+				my $vm_state = $vm_state_strings{$vm->runtime->powerState->val};
+				if ($vm_state eq "UP")
+				{
+					$up++;
+					$output .= $vm->name . "(OK), ";
+				}
+				else
+				{
+					$output = $vm->name . "(" . $vm_state . "), " . $output;
+				}
+			}
+
+			chop($output);
+			chop($output);
+			$res = OK;
+			$output = $up .  "/" . @$vm_views . " VMs up: " . $output;
+			$np->add_perfdata(label => "vmcount", value => $up, uom => 'units', threshold => $np->threshold);
+			$res = $np->check_threshold(check => $up) if (defined($np->threshold));
+		}
+		elsif ($subcommand eq "LISTHOST")
+		{
+			my %host_state_strings = ("poweredOn" => "UP", "poweredOff" => "DOWN", "suspended" => "SUSPENDED", "standBy" => "STANDBY", "MaintenanceMode" => "Maintenance Mode");
+			my $host_views = Vim::find_entity_views(view_type => 'HostSystem', begin_entity => $cluster_view, properties => ['name', 'runtime.powerState']);
+			die "Runtime error\n" if (!defined($host_views));
+			die "There are no hosts.\n" if (!defined($host_views));
+			my $up = 0;
+			my $unknown = 0;
+			$output = '';
+
+			foreach my $host (@$host_views) {
+				$host->update_view_data(['name', 'runtime.powerState']);
+				my $host_state = $host_state_strings{$host->get_property('runtime.powerState')->val};
+				$unknown += $host_state eq "UNKNOWN";
+				if ($host_state eq "UP" && $host_state eq "Maintenance Mode") {
+					$up++;
+					$output .= $host->name . "(UP), ";
+				} else
+				{
+					$output = $host->name . "(" . $host_state . "), " . $output;
+				}
+			}
+
+			chop($output);
+			chop($output);
+			$res = OK;
+			$output = $up .  "/" . @$host_views . " Hosts up: " . $output;
+			$np->add_perfdata(label => "vmcount", value => $up, uom => 'units', threshold => $np->threshold);
+			$res = $np->check_threshold(check => $up) if (defined($np->threshold));
+			$res = UNKNOWN if ($res == OK && $unknown);
+		}
+		elsif ($subcommand eq "STATUS")
+		{
+			if (defined($cluster_view->overallStatus))
+			{
+				my $status = $cluster_view->overallStatus->val;
+				$output = "overall status=" . $status;
+				$res = check_health_state($status);
+			}
+			else
+			{
+				$output = "Insufficient rights to access status info on the DC\n";
+				$res = WARNING;
+			}
+		}
+		elsif ($subcommand eq "ISSUES")
+		{
+			my $issues = $cluster_view->configIssue;
+			my $issues_count = 0;
+
+			$output = '';
+			if (defined($issues))
+			{
+				foreach (@$issues)
+				{
+					if (defined($blacklist))
+					{
+						my $name = ref($_);
+						next if ($blacklist =~ m/(^|\s|\t|,)\Q$name\E($|\s|\t|,)/);
+					}
+					$output .= format_issue($_) . "; ";
+					$issues_count++;
+				}
+			}
+
+			if ($output eq '')
+			{
+				$res = OK;
+				$output = 'No config issues';
+			}
+			$np->add_perfdata(label => "issues", value => $issues_count);
+		}
+		else
+		{
+			$res = CRITICAL;
+			$output = "CLUSTER RUNTIME - unknown subcommand\n" . $np->opts->_help;
+		}
+	}
+	else
+	{
+		my %cluster_maintenance_state = (0 => "no", 1 => "yes");
+		my $vm_views = Vim::find_entity_views(view_type => 'VirtualMachine', begin_entity => $cluster_view, properties => ['name', 'runtime.powerState']);
+		my $up = 0;
+
+		if (defined($vm_views))
+		{
+			foreach my $vm (@$vm_views) {
+				$up += $vm->get_property('runtime.powerState')->val eq "poweredOn";
+			}
+			$np->add_perfdata(label => "vmcount", value => $up, uom => 'units', threshold => $np->threshold);
+			$output = $up . "/" . @$vm_views . " VMs up";
+		}
+		else
+		{
+			$output = "No VMs installed";
+		}
+
+		my $AlertCount = 0;
+		my $SensorCount = 0;
+		my ($cpuStatusInfo, $storageStatusInfo, $memoryStatusInfo, $numericSensorInfo);
+
+		$res = OK;
+		$output .= ", overall status=" . $cluster_view->overallStatus->val . ", " if (defined($cluster_view->overallStatus));
+
+		my $issues = $cluster_view->configIssue;
+		if (defined($issues))
+		{
+			$output .= @$issues . " config issue(s)";
+		}
+		else
+		{
+			$output .= "no config issues";
+		}
+	}
+
+	return ($res, $output);
+}
+
+sub cluster_list_vm_volumes_info
+{
+	my ($cluster, $np, $subcommand, $blacklist, $perc, $addopts) = @_;
+
+	my $cluster_view = Vim::find_entity_view(view_type => 'ClusterComputeResource', filter => {name => "$cluster"}, properties => ['name', 'datastore']);
+	die "Insufficient rights to access Datastores on the Host\n" if (!defined($cluster_view->datastore));
+
+	return datastore_volumes_info($cluster_view->datastore, $np, $subcommand, $blacklist, $perc, $addopts);
+}
+
