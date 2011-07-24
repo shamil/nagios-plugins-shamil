@@ -405,23 +405,23 @@ eval
 	{
 		if ($command eq "CPU")
 		{
-			($result, $output) = vm_cpu_info($vmname, $np, uc($subcommand));
+			($result, $output) = vm_cpu_info($vmname, $np, local_uc($subcommand));
 		}
 		elsif ($command eq "MEM")
 		{
-			($result, $output) = vm_mem_info($vmname, $np, uc($subcommand));
+			($result, $output) = vm_mem_info($vmname, $np, local_uc($subcommand));
 		}
 		elsif ($command eq "NET")
 		{
-			($result, $output) = vm_net_info($vmname, $np, uc($subcommand));
+			($result, $output) = vm_net_info($vmname, $np, local_uc($subcommand));
 		}
 		elsif ($command eq "IO")
 		{
-			($result, $output) = vm_disk_io_info($vmname, $np, uc($subcommand));
+			($result, $output) = vm_disk_io_info($vmname, $np, local_uc($subcommand));
 		}
 		elsif ($command eq "RUNTIME")
 		{
-			($result, $output) = vm_runtime_info($vmname, $np, uc($subcommand));
+			($result, $output) = vm_runtime_info($vmname, $np, local_uc($subcommand));
 		}
 		else
 		{
@@ -435,19 +435,19 @@ eval
 		$esx = {name => $host} if (defined($datacenter));
 		if ($command eq "CPU")
 		{
-			($result, $output) = host_cpu_info($esx, $np, uc($subcommand), $addopts);
+			($result, $output) = host_cpu_info($esx, $np, local_uc($subcommand), $addopts);
 		}
 		elsif ($command eq "MEM")
 		{
-			($result, $output) = host_mem_info($esx, $np, uc($subcommand), $addopts);
+			($result, $output) = host_mem_info($esx, $np, local_uc($subcommand), $addopts);
 		}
 		elsif ($command eq "NET")
 		{
-			($result, $output) = host_net_info($esx, $np, uc($subcommand));
+			($result, $output) = host_net_info($esx, $np, local_uc($subcommand));
 		}
 		elsif ($command eq "IO")
 		{
-			($result, $output) = host_disk_io_info($esx, $np, uc($subcommand));
+			($result, $output) = host_disk_io_info($esx, $np, local_uc($subcommand));
 		}
 		elsif ($command eq "VMFS")
 		{
@@ -455,7 +455,7 @@ eval
 		}
 		elsif ($command eq "RUNTIME")
 		{
-			($result, $output) = host_runtime_info($esx, $np, uc($subcommand), $blacklist);
+			($result, $output) = host_runtime_info($esx, $np, local_uc($subcommand), $blacklist);
 		}
 		elsif ($command eq "SERVICE")
 		{
@@ -463,7 +463,7 @@ eval
 		}
 		elsif ($command eq "STORAGE")
 		{
-			($result, $output) = host_storage_info($esx, $np, uc($subcommand), $blacklist);
+			($result, $output) = host_storage_info($esx, $np, local_uc($subcommand), $blacklist);
 		}
 		else
 		{
@@ -475,15 +475,15 @@ eval
 	{
 		if ($command eq "CPU")
 		{
-			($result, $output) = cluster_cpu_info($cluster, $np, uc($subcommand));
+			($result, $output) = cluster_cpu_info($cluster, $np, local_uc($subcommand));
 		}
 		elsif ($command eq "MEM")
 		{
-			($result, $output) = cluster_mem_info($cluster, $np, uc($subcommand), $addopts);
+			($result, $output) = cluster_mem_info($cluster, $np, local_uc($subcommand), $addopts);
 		}
 		elsif ($command eq "CLUSTER")
 		{
-			($result, $output) = cluster_cluster_info($cluster, $np, uc($subcommand));
+			($result, $output) = cluster_cluster_info($cluster, $np, local_uc($subcommand));
 		}
 		elsif ($command eq "VMFS")
 		{
@@ -491,7 +491,7 @@ eval
 		}
 		elsif ($command eq "RUNTIME")
 		{
-			($result, $output) = cluster_runtime_info($cluster, $np, uc($subcommand));
+			($result, $output) = cluster_runtime_info($cluster, $np, local_uc($subcommand));
 		}
 		else
 		{
@@ -509,19 +509,19 @@ eval
 		}
 		elsif ($command eq "CPU")
 		{
-			($result, $output) = dc_cpu_info($np, uc($subcommand), $addopts);
+			($result, $output) = dc_cpu_info($np, local_uc($subcommand), $addopts);
 		}
 		elsif ($command eq "MEM")
 		{
-			($result, $output) = dc_mem_info($np, uc($subcommand), $addopts);
+			($result, $output) = dc_mem_info($np, local_uc($subcommand), $addopts);
 		}
 		elsif ($command eq "NET")
 		{
-			($result, $output) = dc_net_info($np, uc($subcommand));
+			($result, $output) = dc_net_info($np, local_uc($subcommand));
 		}
 		elsif ($command eq "IO")
 		{
-			($result, $output) = dc_disk_io_info($np, uc($subcommand));
+			($result, $output) = dc_disk_io_info($np, local_uc($subcommand));
 		}
 		elsif ($command eq "VMFS")
 		{
@@ -529,7 +529,7 @@ eval
 		}
 		elsif ($command eq "RUNTIME")
 		{
-			($result, $output) = dc_runtime_info($np, uc($subcommand), $blacklist);
+			($result, $output) = dc_runtime_info($np, local_uc($subcommand), $blacklist);
 		}
 		else
 		{
@@ -664,6 +664,12 @@ sub return_cluster_performance_values {
 
 	return undef if ($@);
 	return $values;
+}
+
+sub local_uc
+{
+	my ($val) = shift(@_);
+	return defined($val)?uc($val):undef;
 }
 
 sub simplify_number
@@ -825,8 +831,15 @@ sub datastore_volumes_info
 	}
 	else
 	{
-		$res = WARNING;
-		$output = defined($subcommand)?defined($regexpflag)? "No matching volumes for regexp \"$subcommand\" found":"No volume named \"$subcommand\" found":"There are no volumes";
+		if ($briefflag)
+		{
+			$output = "There are no alerts";
+		}
+		else
+		{
+			$res = WARNING;
+			$output = defined($subcommand)?$regexpflag? "No matching volumes for regexp \"$subcommand\" found":"No volume named \"$subcommand\" found":"There are no volumes";
+		}
 	}
 
 	return ($res, $output);
@@ -1046,7 +1059,7 @@ sub host_mem_info
 			$values = return_host_performance_values($host, 'mem', ('consumed.average', 'overhead.average'));
 			if (defined($values))
 			{
-				my $value = simplify_number((convert_number($$values[0][0]->value) + convert_number($$values[1]->value)) / 1024);
+				my $value = simplify_number((convert_number($$values[0][0]->value) + convert_number($$values[0][1]->value)) / 1024);
 				$np->add_perfdata(label => "mem_overhead", value =>  $value, uom => 'MB', threshold => $np->threshold);
 				$output = "overall=" . $value . " MB";
 				$res = $np->check_threshold(check => $value);
