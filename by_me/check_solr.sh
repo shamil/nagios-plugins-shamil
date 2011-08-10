@@ -125,19 +125,19 @@ exec_curl() {
 
 # Get all solar cores (returned as space delimited)
 solr_get_cores() {
-	echo $(exec_curl ${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/admin/cores |
+	echo $(exec_curl ${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/admin/cores?wt=xml |
 		xmlstarlet sel -t -m "/response/lst[@name='status']/lst" -v "@name" -o " ")
 }
 
 # Check if specified core exists
 solr_core_exists() {
-	[ -z $(exec_curl ${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/admin/cores |
+	[ -z $(exec_curl ${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/admin/cores?wt=xml |
 		xmlstarlet sel -t -m "/response/lst[@name='status']/lst" -i "@name='$1'" -v "@name") ] && return 1 || return 0
 }
 
 # Check if specified core in Solr host acts as slave
 solr_core_isslave() {
-	local OUTPUT=$(exec_curl ${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/$1/replication?command=details |
+	local OUTPUT=$(exec_curl "${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/$1/replication?command=details&wt=xml" |
 		xmlstarlet sel -t -v "/response/lst[@name='details']/str[@name='isSlave']")
 
 	[ "$OUTPUT" == "true" ] && return 0 || return 1
@@ -151,7 +151,7 @@ solr_core_ping() {
         return $STATE_WARNING
     }
 
-	local RESULT=$(exec_curl ${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/$1/admin/ping |
+	local RESULT=$(exec_curl ${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/$1/admin/ping?wt=xml |
 		xmlstarlet sel -t -v "/response/str[@name='status']")
 
 	if [ "$RESULT" == "OK" ]; then
@@ -181,13 +181,13 @@ solr_core_replication() {
     local SLAVE_DETAILS SLAVE_INDEXVER SLAVE_REPLICATING SLAVE_LASTREPLICATED
 
     # Get slave replication details
-    SLAVE_DETAILS=$(exec_curl ${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/$1/replication?command=details)
+    SLAVE_DETAILS=$(exec_curl "${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/$1/replication?command=details&wt=xml")
 
     # Get master URL of specified core
     MASTER_URL=$(echo $SLAVE_DETAILS | xmlstarlet sel -t -v "/response/lst[@name='details']/lst[@name='slave']/str[@name='masterUrl']")
 
     # Try to connect to master
-    MASTER_INDEXVER=$(exec_curl ${MASTER_URL}?command=indexversion) || {
+    MASTER_INDEXVER=$(exec_curl "${MASTER_URL}?command=indexversion&wt=xml") || {
 	    echo "cannot reach master => UNKNOWN"
 	    return $STATE_UNKNOWN
     }
@@ -235,7 +235,7 @@ solr_core_numdocs() {
         return $STATE_WARNING
     }
 
-	local RESULT=$(exec_curl ${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/$1/admin/luke?numTerms=0 |
+	local RESULT=$(exec_curl "${URL_PREFIX}${O_SOLR_HOST}:${O_SOLR_PORT}/solr/$1/admin/luke?numTerms=0&wt=xml" |
 		xmlstarlet sel -t -v "/response/lst[@name='index']/int[@name='numDocs']")
 
 	echo $RESULT
