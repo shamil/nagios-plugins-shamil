@@ -31,12 +31,12 @@ CRITICAL = 2
 UNKNOWN  = 3
 
 # Friendly names for states
-STATES   = ['OK', "WARNING", "CRITICAL", "UNKNOWN"]
+STATE   = ['OK', "WARNING", "CRITICAL", "UNKNOWN"]
 
 try:
     import pymongo
 except:
-    print STATES[UNKNOWN] + " - pymongo library was not found"
+    print STATE[UNKNOWN] + " - pymongo library was not found"
     sys.exit(UNKNOWN)
 
 def usage():
@@ -73,11 +73,11 @@ def main(argv):
     p.add_option('-A', '--action',   action='store', type='string', dest='action',   default='connect',   help='            -A : The action you want to take')
     options, arguments = p.parse_args()
 
-    host = options.host
-    port_string = options.port
-    warning_string = options.warning
+    host            = options.host
+    port_string     = options.port
+    action          = options.action    
+    warning_string  = options.warning
     critical_string = options.critical
-    action = options.action
 
     sregex = re.compile('[a-zA-Z]+')
 
@@ -161,11 +161,11 @@ def check_connections(host, port, warning, critical):
         else:
             state = OK
 
-        print STATES[state] + " - " + output + "|" + perf
+        print STATE[state] + " - " + output + "|" + perf
         sys.exit(state)
 
     except pymongo.errors.ConnectionFailure:
-        print STATES[CRITICAL] + " - Connection to MongoDB failed!"
+        print STATE[CRITICAL] + " - Connection to MongoDB failed!"
         sys.exit(CRITICAL)
 
 
@@ -175,8 +175,8 @@ def check_rep_lag(host, port, warning, critical):
         
         isMasterStatus = con.admin.command("ismaster", "1")
         if not isMasterStatus['ismaster']:
-            print "OK - This is a slave."
-            sys.exit(0)
+            print STATE[OK] + " - This is a slave."
+            sys.exit(OK)
         
         rs_status = con.admin.command("replSetGetStatus") 
 
@@ -190,9 +190,8 @@ def check_rep_lag(host, port, warning, critical):
             if member['stateStr'] == 'SECONDARY':
                 lastSlaveOpTime = member['optime'].time
                 replicationLag = lastMasterOpTime - lastSlaveOpTime
-                data = data + member['name'] + " lag=" + str(replicationLag) + "; "
+                data += member['name'] + " lag=" + str(replicationLag) + "; "
                 lag = max(lag, replicationLag)
-
 
         data = data[0:len(data)-2]
 
