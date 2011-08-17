@@ -6,10 +6,13 @@
 
 # Script idea taken from a Tag1 script I found and I modified it a lot
 #
+# Main Author
+#   - Mike Zupan <mike@zcentric.com>
 # Contributers
-#   - Mike Zupan <mike@zcentric.com> <mzupan@theopenskyproject.com>
 #   - Frank Brandewiede <brande@travel-iq.com> <brande@bfiw.de> <brande@novolab.de>
 #   - Sam Perman <sam@brightcove.com>
+#   - @shlomoid on github
+#   - @jhoff909 on github
 #
 # USAGE
 #
@@ -17,7 +20,6 @@
 #
 
 import os
-import re
 import sys
 import getopt
 import time
@@ -40,6 +42,7 @@ except:
     sys.exit(UNKNOWN)
 
 def usage():
+    print
     print "Usage: %s -H host -A action -P port -W warning -C critical" % sys.argv[0]
     print
     print "Parameters description:"
@@ -53,6 +56,7 @@ def usage():
     print "        - flushing: checks the average flush time the server"
     print "        - last_flush_time: instantaneous flushing time in ms"
     print "        - replset_state: State of the node within a replset configuration"
+    print "        - index_miss_ratio: Check the index miss ratio on queries"
     print "  -P : The port MongoDB is running on (defaults to 27017)"
     print "  -W : The warning threshold we want to set"
     print "  -C : The critical threshold we want to set"
@@ -79,25 +83,20 @@ def main(argv):
     warning_string  = options.warning
     critical_string = options.critical
 
-    sregex = re.compile('[a-zA-Z]+')
-
-    sresult = sregex.search(port_string)
-    if sresult:
-        port = 27017
-    else:
+    try:
         port = int(port_string)
-
-    sresult = sregex.search(warning_string)
-    if sresult:
+    except ValueError:
+        port = 27017
+        
+    try:
+        warning = float(warning_string)
+    except ValueError:
         warning = 2
-    else:
-        warning = int(warning_string)
 
-    sresult = sregex.search(critical_string)
-    if sresult:
+    try:
+        critical = float(critical_string)
+    except ValueError:
         critical = 5
-    else:
-        critical = int(critical_string)
 
     if action == "connections":
         check_connections(host, port, warning, critical)
@@ -113,6 +112,8 @@ def main(argv):
         check_flushing(host, port, warning, critical, True)
     elif action == "last_flush_time":
         check_flushing(host, port, warning, critical, False)
+    elif action == "index_miss_ratio":
+        index_miss_ratio(host, port, warning, critical)
     else:
         check_connect(host, port, warning, critical)
 
@@ -149,10 +150,10 @@ def check_connections(host, port, warning, critical):
         available = float(data['connections']['available'])
         total = current + available
 
-        left_percent = int(float(current / available) * 100)
+        left_percent = int(float(current / total) * 100)
         
         output = "%i%% (%i of %i connections) used" % (left_percent, current, total)
-        perf   = "'conections'=%i;%i;%i;0;%i" % (current, warning, critical, total)
+        perf   = "'conections'=%i;;;0;%i" % (current, total)
 
         if left_percent >= critical:
             state = CRITICAL
@@ -171,7 +172,7 @@ def check_connections(host, port, warning, critical):
 
 def check_rep_lag(host, port, warning, critical):
     try:
-        con = pymongo.Connection(host, port, slave_okay=True)
+        con = pymongo.Connection(host, port, slave_okay = True)
         
         isMasterStatus = con.admin.command("ismaster", "1")
         if not isMasterStatus['ismaster']:
@@ -179,7 +180,15 @@ def check_rep_lag(host, port, warning, critical):
             sys.exit(OK)
         
         rs_status = con.admin.command("replSetGetStatus") 
+        rs_conf   = con.local.system.replset.find_one()
 
+        slaveDelays = {}
+        for member in rs_conf['members']:
+            if member.get('slaveDelay') is not None:
+                slaveDelays[member['host']] = member.get('slaveDelay')
+            else:
+                slaveDelays[member['host']] = 0                
+        
         for member in rs_status['members']:
             if member['stateStr'] == 'PRIMARY':
                 lastMasterOpTime = member['optime'].time
@@ -189,7 +198,7 @@ def check_rep_lag(host, port, warning, critical):
         for member in rs_status['members']:
             if member['stateStr'] == 'SECONDARY':
                 lastSlaveOpTime = member['optime'].time
-                replicationLag = lastMasterOpTime - lastSlaveOpTime
+                replicationLag = lastMasterOpTime - lastSlaveOpTime - slaveDelays[member['name']]
                 data += member['name'] + " lag=" + str(replicationLag) + "; "
                 lag = max(lag, replicationLag)
 
@@ -225,9 +234,6 @@ def check_memory(host, port, warning, critical):
         #  
         mem = float(data['mem']['resident']) / 1000.0
         
-        warning = float(warning)
-        critical = float(critical)
-        
         if mem >= critical:
             print "CRITICAL - Memory Usage: %f GByte" % mem
             sys.exit(2)
@@ -257,18 +263,15 @@ def check_lock(host, port, warning, critical):
         # calculate percentage
         #  
         lock = float(data['globalLock']['lockTime']) / float(data['globalLock']['totalTime']) * 100
-
-        warning = float(warning)
-        critical = float(critical)
         
         if lock >= critical:
-            print "CRITICAL - Lock Percentage: %.2f" % round(lock, 2)
+            print "CRITICAL - Lock Percentage: %.2f" % lock
             sys.exit(2)
         elif lock >= warning:
-            print "WARNING - Lock Percentage: %.2f" % round(lock, 2)
+            print "WARNING - Lock Percentage: %.2f" % lock
             sys.exit(1)
         else:
-            print "OK - Lock Percentage: %.2f" % round(lock, 2)
+            print "OK - Lock Percentage: %.2f" % lock
             sys.exit(0)
         
  
@@ -292,17 +295,15 @@ def check_flushing(host, port, warning, critical, avg):
         else:
             flush_time = float(data['backgroundFlushing']['last_ms'])
             stat_type = "Last"
-        warning = float(warning)
-        critical = float(critical)
 
         if flush_time >= critical:
-            print "CRITICAL - %s Flush Time: %.2fms" % (stat_type, round(flush_time, 2))
+            print "CRITICAL - %s Flush Time: %.2fms" % (stat_type, flush_time)
             sys.exit(2)
         elif flush_time >= warning:
-            print "WARNING - %s Flush Time: %.2fms" % (stat_type, round(flush_time, 2))
+            print "WARNING - %s Flush Time: %.2fms" % (stat_type, flush_time)
             sys.exit(1)
         else:
-            print "OK - %s Flush Time: %.2fms" % (stat_type, round(flush_time, 2))
+            print "OK - %s Flush Time: %.2fms" % (stat_type, flush_time)
             sys.exit(0)
 
 
@@ -310,6 +311,32 @@ def check_flushing(host, port, warning, critical, avg):
         print "CRITICAL - Connection to MongoDB failed!"
         sys.exit(2)
 
+def index_miss_ratio(host, port, warning, critical):
+    try:
+        con = pymongo.Connection(host, port, slave_okay=True)
+
+        try:
+            data = con.admin.command(pymongo.son_manipulator.SON([('serverStatus', 1)]))
+        except:
+            data = con.admin.command(pymongo.son.SON([('serverStatus', 1)]))
+
+
+        miss_ratio = float(data['indexCounters']['btree']['missRatio'])
+
+        if miss_ratio >= critical:
+            print "CRITICAL - Miss Ratio: %.4f" % miss_ratio
+            sys.exit(2)
+        elif miss_ratio >= warning:
+            print "WARNING - Miss Ratio: %.4f" % miss_ratio
+            sys.exit(1)
+        else:
+            print "OK - Miss Ratio: %.4f" % miss_ratio
+            sys.exit(0)
+
+
+    except pymongo.errors.ConnectionFailure:
+        print "CRITICAL - Connection to MongoDB failed!"
+        sys.exit(2)
 
 def check_replset_state(host, port):
     try:
@@ -360,4 +387,3 @@ def check_replset_state(host, port):
 #
 if __name__ == "__main__":
     main(sys.argv[1:])
-
