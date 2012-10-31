@@ -122,7 +122,7 @@ elsif ($o_check =~ /^role$/i) {
     }
     else {
         $intData     = 0;
-        $strOutput   = "Role $strOutput";
+        $strOutput   = "Role $strRole";
         $strPerfData = '';
     }
 }
