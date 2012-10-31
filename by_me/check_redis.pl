@@ -161,13 +161,13 @@ if (defined($intState) && $intState == $STATE_UNKNOWN) {
     $strPerfData  = "";
 }
 elsif (! defined($o_inverse)) {
-    if ($intData > $o_crit) { $intState = $STATE_CRITICAL; }
-    elsif ($intData > $o_warn) { $intState = $STATE_WARNING; }
+    if ($intData >= $o_crit) { $intState = $STATE_CRITICAL; }
+    elsif ($intData >= $o_warn) { $intState = $STATE_WARNING; }
     else { $intState = $STATE_OK; }
 }
 else {
-    if ($intData < $o_crit) { $intState = $STATE_CRITICAL; }
-    elsif ($intData < $o_warn) { $intState = $STATE_WARNING; }
+    if ($intData <= $o_crit) { $intState = $STATE_CRITICAL; }
+    elsif ($intData <= $o_warn) { $intState = $STATE_WARNING; }
     else { $intState = $STATE_OK; }
 }
 
