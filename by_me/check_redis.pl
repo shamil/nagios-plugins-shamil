@@ -63,7 +63,6 @@ check_arguments();	# First check for command line arguments
 # Connect to 'redis' server
 my $SOCKET = IO::Socket::INET->new(
     PeerAddr => "$o_host:$o_port",
-    Proto    => "tcp",
     Timeout  => $TIMEOUT
 );
 
@@ -122,6 +121,7 @@ elsif ($o_check =~ /^role$/i) {
         $strPerfData  = "'Connected_slaves'=" . $intData . ";;;;";
     }
     else {
+        $intData     = 0;
         $strOutput   = "Role $strOutput";
         $strPerfData = '';
     }
