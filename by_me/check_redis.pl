@@ -1,18 +1,24 @@
 #!/usr/bin/perl -w
 # ============================== Summary =======================================
 # Program : check_redis.pl
-# Version : 2010.7.29
+# Version : 2012.10.30
 # Date    : July 15 2010
-# Updated : July 15 2010
+# Updated : October 30 2012
 # Author  : Alex Simenduev - (http://www.planetit.ws)
 # Summary : This is a nagios plugin that checks redis server state
 #
 # ================================ Description =================================
 # The plugin is capable of check couple aspects of redis server. Supported
-# checks are Connections, Memory, and Uptime. Check usage for how to use them.
+# checks are Connections, Memory, Role, Uptime and Version. Check usage ...
 # ================================ Change log ==================================
 # Legend:
 #               [*] Informational, [!] Bugix, [+] Added, [-] Removed
+#
+# Ver 2012.10.30:
+#               [!] Get ouptut from new  versions of redis servers
+#               [+] Added 'role' check, gets the role of server (master/lave)
+#               [+] Added 'version' check, just prints out the sevrer version
+#               [*] Fix some typos
 #
 # Ver 2010.7.29:
 #               [*] Removed unuseful 'print' code
@@ -27,9 +33,9 @@ use File::Basename;
 
 # Variables Section
 # -------------------------------------------------------------------------- #
-my $VERSION       = "2010.7.15";
+my $VERSION       = "2012.10.30";
 my $SCRIPT_NAME   = basename(__FILE__);
-my $TIMEOUT       = 10;
+my $TIMEOUT       = 10; # timeout for the socket connection
 
 # Nagios states
 my $STATE_OK		= 0;
@@ -54,12 +60,10 @@ my $o_version	= undef; # Script version
 # -------------------------------------------------------------------------- #
 check_arguments();	# First check for command line arguments
 
-# Connect to 'memcached' server
+# Connect to 'redis' server
 my $SOCKET = IO::Socket::INET->new(
-    PeerAddr => $o_host,
-    PeerPort => $o_port,
+    PeerAddr => "$o_host:$o_port",
     Proto    => "tcp",
-    Type     => SOCK_STREAM,
     Timeout  => $TIMEOUT
 );
 
@@ -69,17 +73,24 @@ if (!$SOCKET) {
     exit $STATE_CRITICAL;
 }
 
-my ($intState, $intData, $strOutput, $strPerfData);
+my ($strInfo, $intState, $intData, $strOutput, $strPerfData);
 
-# Run memcached 'stats' command
-print $SOCKET "INFO\n";
+# Run redis 'INFO' command
+print $SOCKET "INFO\r\n";
+
+# get how much bytes to read, read them and save to $strInfo variable
+read($SOCKET, $strInfo, substr(<$SOCKET>, 1));
+
+# close connection, we don't need it anymore
+close($SOCKET);
+
+# save the ouput into seperate lines (array)
+my @lines = split("\r\n", $strInfo);
 
 # Get number of connections
 if ($o_check =~ /^connections$/i) {
-    my $line = <$SOCKET>;
-    while ($line ne "\r\n") {
+    foreach my $line (@lines) {
         $intData = $1 if ($line =~ m/connected_clients:([0-9]+)/);  # Get number of connections
-        $line = <$SOCKET>;
     }
 
     $strOutput    = "$intData number of connections to the server";
@@ -87,28 +98,55 @@ if ($o_check =~ /^connections$/i) {
 }
 # Get memory usage
 elsif ($o_check =~ /^memory$/i) {
-    my ($line, $used_memory_human);
+    my $used_memory_human;
 
-    $line = <$SOCKET>;
-    while ($line ne "\r\n") {
+    foreach my $line (@lines) {
         $intData = $1 if ($line =~ m/used_memory:([0-9]+)/);                 # Get used bytes
         $used_memory_human = $1 if ($line =~ m/used_memory_human:([\w.]+)/); # Get used in human readable format
-        $line = <$SOCKET>;
     }
 
     $strOutput    = "$used_memory_human memory in use by server";
     $strPerfData  = "'Used'=" . $intData . "B;;;; ";
 }
+# Get role
+elsif ($o_check =~ /^role$/i) {
+    my $strRole = '';
+
+    foreach my $line (@lines) {
+        $strRole = $1 if ($line =~ m/role:(.*)/);                   # Get role
+        $intData = $1 if ($line =~ m/connected_slaves:([0-9]+)/);   # Get connected slaves
+    }
+
+    if ($strRole eq 'master') {
+        $strOutput = "Role master, and has $intData connected slaves";
+        $strPerfData  = "'Connected_slaves'=" . $intData . ";;;;";
+    }
+    else {
+        $strOutput   = "Role $strOutput";
+        $strPerfData = '';
+    }
+}
 # Get uptime
 elsif ($o_check =~ /^uptime$/i) {
-    my $line = <$SOCKET>;
-    while ($line ne "\r\n") {
+    foreach my $line (@lines) {
         $intData = $1 if ($line =~ m/uptime_in_days:([0-9]+)/);  # Get uptime in days
-        $line = <$SOCKET>;
     }
 
     $strOutput    = "Up for $intData days";
     $strPerfData  = "'Uptime'=" . $intData . "d;;;;";
+}
+# Get role
+elsif ($o_check =~ /^version$/i) {
+    foreach my $line (@lines) {
+        # Get version of the server
+        if ($line =~ m/redis_version:(.*)/) {
+            $strOutput = "Server version is $1";
+            last;
+        }
+    }
+
+    $intData     = 0;
+    $strPerfData = '';
 }
 # Set state to Unknown for anything else
 else {
@@ -135,9 +173,6 @@ else {
 
 # Now print the final output string
 print $STATES[$intState] . " - $strOutput|$strPerfData\n";
-
-# Close connection
-close($SOCKET);
 
 # Finally exit with current state error code.
 exit $intState;
@@ -203,9 +238,9 @@ sub print_help {
 -H, --hostname=STRING
     name or IP address of host to check (default: localhost)
 -P, --port=INTEGER
-    Memcached port to use (default: 6379)
+    Redis port to use (default: 6379)
 -C --check=STRING
-    What to check (one of: connections, memory, uptime)
+    What to check (one of: connections, memory, role, uptime or version)
 -w, --warn=INTEGER
     warning level (unit depends on the check)
 -c, --crit=INTEGER
