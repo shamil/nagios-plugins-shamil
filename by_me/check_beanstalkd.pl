@@ -1,6 +1,6 @@
 #!/usr/bin/perl -w
 # ============================== Summary =======================================
-# Program : check_redis.pl
+# Program : check_beanstalkd.pl
 # Version : 0.1
 # Date    : Dec 18 2012
 # Updated : Dec 18 2012
