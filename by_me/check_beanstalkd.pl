@@ -48,7 +48,7 @@ my $o_version	= undef; # Script version
 # -------------------------------------------------------------------------- #
 check_arguments();	# First check for command line arguments
 
-# Connect to 'redis' server
+# Connect to 'beanstalkd' server
 my $SOCKET = IO::Socket::INET->new(
     PeerAddr => "$o_host:$o_port",
     Timeout  => $TIMEOUT
@@ -62,7 +62,7 @@ if (!$SOCKET) {
 
 my ($strInfo, $intState, $intData, $strOutput, $strPerfData);
 
-# Run redis 'INFO' command
+# Run beanstalkd 'stats' command
 print $SOCKET "stats\r\n";
 
 # get how much bytes to read, read them and save to $strInfo variable
@@ -244,8 +244,8 @@ sub print_usage {
 }
 
 sub print_help {
-	print "\nRedis check plugin for Nagios, version ", $VERSION, "\n";
-	print "(C) 2010, Alex Simenduev - http://www.planetit.ws\n\n";
+	print "\Beanstalkd check plugin for Nagios, version ", $VERSION, "\n";
+	print "(C) 2012, Alex Simenduev - https://github.com/shamil/nagios-plugins-shamil\n\n";
 	print_usage();
 	print <<EOD;
 -h, --help
