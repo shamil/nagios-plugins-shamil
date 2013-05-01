@@ -70,8 +70,8 @@ if (!$SOCKET) {
 
 my ($strCmdStatus, $strResponse, $intState, $intData, $strOutput, $strPerfData);
 
-# Run beanstalkd command
-print $SOCKET "$o_cmd\r\n";
+(my $strActualCmd = $o_cmd) =~ s/:/ /;  # prepare the command
+print $SOCKET "$strActualCmd\r\n";      # run thr command
 
 # read the first line of the output (it contains the status ot the command)
 # also trim trailing spaces & end lines (replacement for chomp).
@@ -264,6 +264,7 @@ sub check_arguments {
 
     $o_cmd = "stats" unless defined($o_cmd);
     $o_cmd =~ s/^\s+|\s+$//g; # trim
+    $o_cmd =~ s/\s+/ /g;       # remove double spacing
 
     # we support only stats[-] commands
     unless (lc($o_cmd) =~ /^stats(-.*)?$/) {
