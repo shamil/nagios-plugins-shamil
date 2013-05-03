@@ -1,15 +1,18 @@
 #!/usr/bin/perl -w
 # ============================== Summary =======================================
 # Program : check_beanstalkd.pl
-# Version : 0.5
+# Version : 0.6
 # Date    : Dec 18 2012
-# Updated : May 1 2013
+# Updated : May 3 2013
 # Author  : Alex Simenduev
 # Summary : This is a nagios plugin that checks beanstalkd server state,
 #           the plugin can check any stat metric of beanstalkd server.
 # ================================ Change log ==================================
 # Legend:
 #               [*] Informational, [!] Bugix, [+] Added, [-] Removed
+#
+# Ver 0.6:
+#               [!] Fixed nagios state calculation
 #
 # Ver 0.5:
 #               [+] Added support of all stats commands (stats, stats-job, stats-tube)
@@ -128,22 +131,31 @@ unless ($strOutput) {
 
 # Check if state was set to UNKNOWN (3),
 # if not, check if we using inverse option, then
-# calculate the state according to data variable from the above checks
+# calculate the state according to $intData variable from the above checks
 if (defined($intState) && $intState == $STATE_UNKNOWN) {
     $strPerfData  = "";
 }
-elsif ($o_warn == 0 && $o_crit == 0) {
-    $intState = $STATE_OK;
-}
-elsif (! defined($o_inverse)) {
-    if ($intData >= $o_crit) { $intState = $STATE_CRITICAL; }
-    elsif ($intData >= $o_warn) { $intState = $STATE_WARNING; }
-    else { $intState = $STATE_OK; }
+elsif (defined($o_inverse)) {
+    if (defined($o_crit) && $intData <= $o_crit) {
+        $intState = $STATE_CRITICAL;
+    }
+    elsif (defined($o_warn) && $intData <= $o_warn) {
+        $intState = $STATE_WARNING;
+    }
+    else {
+        $intState = $STATE_OK;
+    }
 }
 else {
-    if ($intData <= $o_crit) { $intState = $STATE_CRITICAL; }
-    elsif ($intData <= $o_warn) { $intState = $STATE_WARNING; }
-    else { $intState = $STATE_OK; }
+    if (defined($o_crit) && $intData >= $o_crit) {
+        $intState = $STATE_CRITICAL;
+    }
+    elsif (defined($o_warn) && $intData >= $o_warn) {
+        $intState = $STATE_WARNING;
+    }
+    else {
+        $intState = $STATE_OK;
+    }
 }
 
 # Now print the final output string
@@ -271,9 +283,6 @@ sub check_arguments {
         print "UNKNOWN: Unsupported command '$o_cmd'\n";
         exit $STATE_UNKNOWN;
     }
-
-    $o_warn = 0 unless defined($o_warn);
-    $o_crit = 0 unless defined($o_crit);
 }
 
 sub print_usage {
